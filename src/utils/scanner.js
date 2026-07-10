@@ -62,25 +62,28 @@ export async function scanFiles(
 
     const text =
       result.text || "";
+    const cleanText =
+      result.cleanText ||
+      text;
 
     const titleTags =
       generateTitleTags(
-        text
+        cleanText
       );
 
     const keywordTags =
       generateKeywordTags(
-        text
+        cleanText
       );
 
     const category =
       classifyDocument(
-        text
+        cleanText
       );
 
     const metadata =
       extractMetadata(
-        text
+        cleanText
       );
 
     results.push({
@@ -107,6 +110,20 @@ export async function scanFiles(
 
       text,
 
+      cleanText,
+
+      textQuality:
+        result.textQuality,
+
+      rawWordCount:
+        result.rawWordCount,
+
+      cleanWordCount:
+        result.cleanWordCount,
+
+      noiseRatio:
+        result.noiseRatio,
+
       pages:
         result.pages || [],
 
@@ -132,6 +149,10 @@ export async function scanFiles(
           file.path,
         chars:
           text.length,
+        cleanChars:
+          cleanText.length,
+        textQuality:
+          result.textQuality,
         fileHash:
           result.fileHash,
         queuedJobs:

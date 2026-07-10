@@ -239,7 +239,8 @@ function buildSearchText(doc) {
       doc.metadata ?? {}
     ),
     doc.category,
-    doc.text ??
+    doc.cleanText ??
+      doc.text ??
       doc.ocrText
   ]
     .filter(Boolean)
@@ -574,9 +575,14 @@ export function searchDocumentsInDocs(
           false
         ],
         [
+          doc.cleanText,
+          10,
+          true
+        ],
+        [
           doc.text ??
             doc.ocrText,
-          10,
+          2,
           true
         ]
       ];
@@ -626,7 +632,8 @@ export function searchDocumentsInDocs(
 
       let preview =
         generatePreview(
-          doc.text,
+          doc.cleanText ||
+            doc.text,
           normalizedQuery
         );
 

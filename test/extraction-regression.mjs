@@ -14,6 +14,10 @@ import {
   extractPdfPageText,
   extractTextFromFile
 } from "../electron/textExtractor.js";
+import {
+  buildTextQuality,
+  cleanExtractedText
+} from "../electron/textQuality.js";
 import rawDocs from "../electron/data/documents.json" with { type: "json" };
 import {
   createDocumentId,
@@ -597,6 +601,30 @@ try {
       /turing/i.test(tag)
     )
   );
+  const cleanNoisyText =
+    cleanExtractedText(
+      noisyOcrText
+    );
+
+  assert.match(
+    cleanNoisyText,
+    /turing/
+  );
+  assert.match(
+    cleanNoisyText,
+    /machine/
+  );
+  assert.match(
+    cleanNoisyText,
+    /output/
+  );
+  assert.doesNotMatch(
+    cleanNoisyText,
+    /\bwockine\b/
+  );
+  assert.ok(
+    buildTextQuality(noisyOcrText).cleanWordCount > 0
+  );
   console.log("PASS OCR-safe tag generation");
 
   await assertExtracts(
@@ -717,7 +745,8 @@ try {
     claimNextOcrJob,
     completeOcrJob,
     getAllDocuments,
-    insertDocument
+    insertDocument,
+    searchDocuments
   } =
     await import(
       "../electron/database.js"
@@ -743,6 +772,10 @@ try {
       "late-page.pdf",
     text:
       quickIndex.text,
+    cleanText:
+      quickIndex.cleanText,
+    textQuality:
+      quickIndex.textQuality,
     pages:
       quickIndex.pages,
     jobs:
@@ -813,6 +846,21 @@ try {
   assert.match(
     indexedDocs[0].text,
     /BACKGROUND PAGE DONE/
+  );
+  assert.match(
+    indexedDocs[0].cleanText,
+    /background page done/i
+  );
+  assert.ok(
+    indexedDocs[0].pages.every(page =>
+      "cleanText" in page
+    )
+  );
+  assert.ok(
+    searchDocuments("background page done")
+      .some(doc =>
+        doc.documentId === lateDocumentId
+      )
   );
   console.log("PASS database hash dedupe and page queue");
 

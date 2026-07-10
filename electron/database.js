@@ -5,7 +5,8 @@ import {
   DatabaseSync
 } from "node:sqlite";
 import {
-  searchDocumentsInDocs
+  searchDocumentsInDocs,
+  tokenize
 } from "./searchEngine.js";
 import {
   createDocumentId,
@@ -15,6 +16,13 @@ import {
 import {
   log
 } from "./logger.js";
+import {
+  buildTextQuality
+} from "./textQuality.js";
+import {
+  generateKeywordTags,
+  generateTitleTags
+} from "../src/utils/tagGenerator.js";
 
 const {
   app
@@ -74,6 +82,7 @@ const EMPTY_JSON_DB = {
   pages: [],
   jobs: []
 };
+const CLEAN_TEXT_VERSION = 4;
 
 let db;
 
@@ -152,6 +161,7 @@ function getDb() {
 
   createSchema(db);
   migrateJsonIfNeeded(db);
+  backfillMissingCleanText(db);
   writeJsonSnapshotSafely(db);
 
   return db;
@@ -160,6 +170,11 @@ function getDb() {
 function createSchema(database) {
 
   database.exec(`
+    CREATE TABLE IF NOT EXISTS app_metadata (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS documents (
       document_id TEXT PRIMARY KEY,
       file_hash TEXT UNIQUE,
@@ -170,6 +185,11 @@ function createSchema(database) {
       category TEXT NOT NULL DEFAULT 'Unknown',
       metadata_json TEXT NOT NULL DEFAULT '{}',
       text TEXT,
+      clean_text TEXT,
+      text_quality INTEGER,
+      raw_word_count INTEGER,
+      clean_word_count INTEGER,
+      noise_ratio REAL,
       total_pages INTEGER,
       indexed_pages INTEGER,
       status TEXT NOT NULL DEFAULT 'done',
@@ -193,6 +213,11 @@ function createSchema(database) {
       file_path TEXT NOT NULL,
       page_number INTEGER NOT NULL,
       text TEXT NOT NULL DEFAULT '',
+      clean_text TEXT NOT NULL DEFAULT '',
+      text_quality INTEGER,
+      raw_word_count INTEGER,
+      clean_word_count INTEGER,
+      noise_ratio REAL,
       has_image INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'done',
       processed_at TEXT NOT NULL,
@@ -246,6 +271,232 @@ function createSchema(database) {
     CREATE INDEX IF NOT EXISTS idx_ocr_jobs_status
       ON ocr_jobs(status, attempts, created_at);
   `);
+
+  ensureColumn(
+    database,
+    "documents",
+    "clean_text",
+    "TEXT"
+  );
+  ensureColumn(
+    database,
+    "documents",
+    "text_quality",
+    "INTEGER"
+  );
+  ensureColumn(
+    database,
+    "documents",
+    "raw_word_count",
+    "INTEGER"
+  );
+  ensureColumn(
+    database,
+    "documents",
+    "clean_word_count",
+    "INTEGER"
+  );
+  ensureColumn(
+    database,
+    "documents",
+    "noise_ratio",
+    "REAL"
+  );
+  ensureColumn(
+    database,
+    "pages",
+    "clean_text",
+    "TEXT NOT NULL DEFAULT ''"
+  );
+  ensureColumn(
+    database,
+    "pages",
+    "text_quality",
+    "INTEGER"
+  );
+  ensureColumn(
+    database,
+    "pages",
+    "raw_word_count",
+    "INTEGER"
+  );
+  ensureColumn(
+    database,
+    "pages",
+    "clean_word_count",
+    "INTEGER"
+  );
+  ensureColumn(
+    database,
+    "pages",
+    "noise_ratio",
+    "REAL"
+  );
+}
+
+function ensureColumn(
+  database,
+  table,
+  column,
+  definition
+) {
+
+  const exists =
+    database
+      .prepare(
+        `PRAGMA table_info(${table})`
+      )
+      .all()
+      .some(row =>
+        row.name === column
+      );
+
+  if (exists) {
+    return;
+  }
+
+  database.exec(
+    `ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`
+  );
+}
+
+function backfillMissingCleanText(database) {
+
+  const versionRow =
+    database
+      .prepare(
+        "SELECT value FROM app_metadata WHERE key = 'clean_text_version'"
+      )
+      .get();
+  const shouldRebuild =
+    Number(versionRow?.value || 0) !==
+    CLEAN_TEXT_VERSION;
+
+  const pages =
+    database
+      .prepare(
+        shouldRebuild
+          ? "SELECT page_id, text FROM pages"
+          : "SELECT page_id, text FROM pages WHERE clean_text IS NULL OR clean_text = ''"
+      )
+      .all();
+
+  for (
+    const page
+    of pages
+  ) {
+    const quality =
+      buildTextQuality(
+        page.text || ""
+      );
+
+    database
+      .prepare(`
+        UPDATE pages
+        SET clean_text = ?,
+            text_quality = ?,
+            raw_word_count = ?,
+            clean_word_count = ?,
+            noise_ratio = ?
+        WHERE page_id = ?
+      `)
+      .run(
+        quality.cleanText,
+        quality.quality,
+        quality.rawWordCount,
+        quality.cleanWordCount,
+        quality.noiseRatio,
+        page.page_id
+      );
+  }
+
+  const documents =
+    database
+      .prepare(
+        shouldRebuild
+          ? "SELECT document_id, text FROM documents WHERE text IS NOT NULL AND text != ''"
+          : "SELECT document_id, text FROM documents WHERE text IS NOT NULL AND text != '' AND (clean_text IS NULL OR clean_text = '')"
+      )
+      .all();
+
+  for (
+    const document
+    of documents
+  ) {
+    const quality =
+      buildTextQuality(
+        document.text || ""
+      );
+
+    database
+      .prepare(`
+        UPDATE documents
+        SET clean_text = ?,
+            text_quality = ?,
+            raw_word_count = ?,
+            clean_word_count = ?,
+            noise_ratio = ?
+        WHERE document_id = ?
+      `)
+      .run(
+        quality.cleanText,
+        quality.quality,
+        quality.rawWordCount,
+        quality.cleanWordCount,
+        quality.noiseRatio,
+        document.document_id
+      );
+  }
+
+  const rows =
+    database
+      .prepare(
+        "SELECT document_id FROM documents"
+      )
+      .all();
+
+  for (
+    const row
+    of rows
+  ) {
+    syncDocumentStatus(
+      database,
+      row.document_id
+    );
+    refreshSearchIndex(
+      database,
+      row.document_id
+    );
+  }
+
+  if (
+    pages.length > 0 ||
+    documents.length > 0 ||
+    shouldRebuild
+  ) {
+    database
+      .prepare(`
+        INSERT INTO app_metadata (key, value)
+        VALUES ('clean_text_version', ?)
+        ON CONFLICT(key) DO UPDATE SET
+          value = excluded.value
+      `)
+      .run(
+        String(CLEAN_TEXT_VERSION)
+      );
+
+    log.info(
+      "database.clean-text.backfilled",
+      {
+        pages:
+          pages.length,
+        documents:
+          documents.length,
+        cleanTextVersion:
+          CLEAN_TEXT_VERSION
+      }
+    );
+  }
 }
 
 function withTransaction(callback) {
@@ -304,6 +555,14 @@ function legacyDocumentToRecord(document) {
       record.filePath ||
         record.primaryPath
     );
+  const text =
+    record.text ||
+    record.ocrText ||
+    "";
+  const quality =
+    buildTextQuality(
+      text
+    );
 
   return {
     ...record,
@@ -311,6 +570,26 @@ function legacyDocumentToRecord(document) {
     fileHash,
     primaryPath,
     filePath,
+    cleanText:
+      record.cleanText ||
+      record.clean_text ||
+      quality.cleanText,
+    textQuality:
+      record.textQuality ??
+      record.text_quality ??
+      quality.quality,
+    rawWordCount:
+      record.rawWordCount ??
+      record.raw_word_count ??
+      quality.rawWordCount,
+    cleanWordCount:
+      record.cleanWordCount ??
+      record.clean_word_count ??
+      quality.cleanWordCount,
+    noiseRatio:
+      record.noiseRatio ??
+      record.noise_ratio ??
+      quality.noiseRatio,
     paths:
       [
         ...new Set(
@@ -348,10 +627,34 @@ function normalizePageRecord(page) {
     ]
       .filter(Boolean)
       .join("\n\n");
+  const quality =
+    buildTextQuality(
+      text
+    );
 
   return {
     ...page,
     text,
+    cleanText:
+      page.cleanText ||
+      page.clean_text ||
+      quality.cleanText,
+    textQuality:
+      page.textQuality ??
+      page.text_quality ??
+      quality.quality,
+    rawWordCount:
+      page.rawWordCount ??
+      page.raw_word_count ??
+      quality.rawWordCount,
+    cleanWordCount:
+      page.cleanWordCount ??
+      page.clean_word_count ??
+      quality.cleanWordCount,
+    noiseRatio:
+      page.noiseRatio ??
+      page.noise_ratio ??
+      quality.noiseRatio,
     filePath:
       normalizeStoredPath(
         page.filePath
@@ -610,6 +913,16 @@ function rowToDocument(row) {
       ),
     text:
       row.text || "",
+    cleanText:
+      row.clean_text || "",
+    textQuality:
+      row.text_quality,
+    rawWordCount:
+      row.raw_word_count,
+    cleanWordCount:
+      row.clean_word_count,
+    noiseRatio:
+      row.noise_ratio,
     totalPages:
       row.total_pages,
     indexedPages:
@@ -640,6 +953,16 @@ function rowToPage(row) {
       row.page_number,
     text:
       row.text || "",
+    cleanText:
+      row.clean_text || "",
+    textQuality:
+      row.text_quality,
+    rawWordCount:
+      row.raw_word_count,
+    cleanWordCount:
+      row.clean_word_count,
+    noiseRatio:
+      row.noise_ratio,
     hasImage:
       Boolean(row.has_image),
     status:
@@ -730,6 +1053,47 @@ function getJobsForSnapshot(database) {
     );
 }
 
+function getPathsForSnapshot(database) {
+
+  return database
+    .prepare(
+      "SELECT document_id, file_path FROM document_paths ORDER BY document_id, file_path"
+    )
+    .all()
+    .map(row => ({
+      documentId:
+        row.document_id,
+      filePath:
+        row.file_path
+    }));
+}
+
+function getAppMetadataForSnapshot(database) {
+
+  return database
+    .prepare(
+      "SELECT key, value FROM app_metadata ORDER BY key"
+    )
+    .all();
+}
+
+function getTagsForSnapshot(database) {
+
+  return database
+    .prepare(
+      "SELECT document_id, tag_type, tag FROM tags ORDER BY document_id, tag_type, tag"
+    )
+    .all()
+    .map(row => ({
+      documentId:
+        row.document_id,
+      tagType:
+        row.tag_type,
+      tag:
+        row.tag
+    }));
+}
+
 function aggregateDocumentText(document, pages) {
 
   const pageText =
@@ -744,6 +1108,29 @@ function aggregateDocumentText(document, pages) {
     document.text ||
     document.ocrText ||
     "";
+}
+
+function aggregateDocumentCleanText(document, pages) {
+
+  const pageText =
+    pages
+      .map(page =>
+        page.cleanText ||
+        page.text
+      )
+      .filter(Boolean)
+      .join("\n\n");
+
+  if (pageText) {
+    return pageText;
+  }
+
+  return document.cleanText ||
+    buildTextQuality(
+      document.text ||
+      document.ocrText ||
+      ""
+    ).cleanText;
 }
 
 function flattenDocument(
@@ -777,6 +1164,15 @@ function flattenDocument(
       document,
       pages
     );
+  const cleanText =
+    aggregateDocumentCleanText(
+      document,
+      pages
+    );
+  const quality =
+    buildTextQuality(
+      text
+    );
 
   return {
     ...document,
@@ -789,12 +1185,31 @@ function flattenDocument(
       document.indexedPages ||
       null,
     text,
+    cleanText,
+    textQuality:
+      document.textQuality ??
+      quality.quality,
+    rawWordCount:
+      document.rawWordCount ??
+      quality.rawWordCount,
+    cleanWordCount:
+      document.cleanWordCount ??
+      quality.cleanWordCount,
+    noiseRatio:
+      document.noiseRatio ??
+      quality.noiseRatio,
     pages:
       pages.map(page => ({
         pageNumber:
           page.pageNumber,
         text:
           page.text,
+        cleanText:
+          page.cleanText,
+        textQuality:
+          page.textQuality,
+        noiseRatio:
+          page.noiseRatio,
         status:
           page.status
       }))
@@ -831,11 +1246,19 @@ function createJsonSnapshot(database) {
         database,
         document.documentId
       );
-
-    const paths =
-      getPathsForDocument(
-        database,
-        document.documentId
+    const aggregateText =
+      aggregateDocumentText(
+        document,
+        documentPages
+      );
+    const aggregateCleanText =
+      aggregateDocumentCleanText(
+        document,
+        documentPages
+      );
+    const aggregateQuality =
+      buildTextQuality(
+        aggregateText
       );
 
     const snapshotDocument = {
@@ -851,7 +1274,6 @@ function createJsonSnapshot(database) {
       primaryPath:
         document.primaryPath ||
         document.filePath,
-      paths,
       titleTags:
         document.titleTags || [],
       keywordTags:
@@ -860,6 +1282,22 @@ function createJsonSnapshot(database) {
         document.category || "Unknown",
       metadata:
         document.metadata || {},
+      cleanText:
+        documentPages.length === 0
+          ? aggregateCleanText
+          : undefined,
+      textQuality:
+        document.textQuality ??
+        aggregateQuality.quality,
+      rawWordCount:
+        document.rawWordCount ??
+        aggregateQuality.rawWordCount,
+      cleanWordCount:
+        document.cleanWordCount ??
+        aggregateQuality.cleanWordCount,
+      noiseRatio:
+        document.noiseRatio ??
+        aggregateQuality.noiseRatio,
       totalPages:
         document.totalPages,
       indexedPages:
@@ -878,7 +1316,7 @@ function createJsonSnapshot(database) {
       documentPages.length === 0
     ) {
       snapshotDocument.text =
-        document.text || "";
+        aggregateText;
     }
 
     documents.push(
@@ -908,6 +1346,16 @@ function createJsonSnapshot(database) {
           page.pageNumber,
         text:
           page.text || "",
+        cleanText:
+          page.cleanText || "",
+        textQuality:
+          page.textQuality,
+        rawWordCount:
+          page.rawWordCount,
+        cleanWordCount:
+          page.cleanWordCount,
+        noiseRatio:
+          page.noiseRatio,
         hasImage:
           page.hasImage,
         status:
@@ -918,18 +1366,35 @@ function createJsonSnapshot(database) {
     }
   }
 
+  const ocrJobs =
+    getJobsForSnapshot(
+      database
+    );
+
   return {
     version: 2,
     source:
       "sqlite-snapshot",
     generatedAt:
       now(),
-    documents,
-    pages,
-    jobs:
-      getJobsForSnapshot(
+    app_metadata:
+      getAppMetadataForSnapshot(
         database
-      )
+      ),
+    documents,
+    document_paths:
+      getPathsForSnapshot(
+        database
+      ),
+    pages,
+    ocr_jobs:
+      ocrJobs,
+    tags:
+      getTagsForSnapshot(
+        database
+      ),
+    jobs:
+      ocrJobs
   };
 }
 
@@ -1013,6 +1478,15 @@ function upsertDocumentRecord(
       : normalized.text ||
           normalized.ocrText ||
           "";
+  const quality =
+    buildTextQuality(
+      storedText
+    );
+  const storedCleanText =
+    hasPages
+      ? null
+      : normalized.cleanText ||
+          quality.cleanText;
 
   database
     .prepare(`
@@ -1026,13 +1500,18 @@ function upsertDocumentRecord(
         category,
         metadata_json,
         text,
+        clean_text,
+        text_quality,
+        raw_word_count,
+        clean_word_count,
+        noise_ratio,
         total_pages,
         indexed_pages,
         status,
         scanned_at,
         updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(document_id) DO UPDATE SET
         file_hash = excluded.file_hash,
         file_name = excluded.file_name,
@@ -1042,6 +1521,11 @@ function upsertDocumentRecord(
         category = excluded.category,
         metadata_json = excluded.metadata_json,
         text = excluded.text,
+        clean_text = excluded.clean_text,
+        text_quality = excluded.text_quality,
+        raw_word_count = excluded.raw_word_count,
+        clean_word_count = excluded.clean_word_count,
+        noise_ratio = excluded.noise_ratio,
         total_pages = excluded.total_pages,
         indexed_pages = excluded.indexed_pages,
         status = excluded.status,
@@ -1070,6 +1554,15 @@ function upsertDocumentRecord(
         {}
       ),
       storedText,
+      storedCleanText,
+      normalized.textQuality ??
+        quality.quality,
+      normalized.rawWordCount ??
+        quality.rawWordCount,
+      normalized.cleanWordCount ??
+        quality.cleanWordCount,
+      normalized.noiseRatio ??
+        quality.noiseRatio,
       normalized.totalPages,
       normalized.indexedPages,
       normalized.status || "done",
@@ -1125,16 +1618,26 @@ function upsertPageRecord(
         file_path,
         page_number,
         text,
+        clean_text,
+        text_quality,
+        raw_word_count,
+        clean_word_count,
+        noise_ratio,
         has_image,
         status,
         processed_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(document_id, page_number) DO UPDATE SET
         page_id = excluded.page_id,
         file_hash = excluded.file_hash,
         file_path = excluded.file_path,
         text = excluded.text,
+        clean_text = excluded.clean_text,
+        text_quality = excluded.text_quality,
+        raw_word_count = excluded.raw_word_count,
+        clean_word_count = excluded.clean_word_count,
+        noise_ratio = excluded.noise_ratio,
         has_image = excluded.has_image,
         status = excluded.status,
         processed_at = excluded.processed_at
@@ -1148,6 +1651,11 @@ function upsertPageRecord(
       ),
       pageNumber,
       normalized.text || "",
+      normalized.cleanText || "",
+      normalized.textQuality ?? null,
+      normalized.rawWordCount ?? null,
+      normalized.cleanWordCount ?? null,
+      normalized.noiseRatio ?? null,
       normalized.hasImage
         ? 1
         : 0,
@@ -1246,17 +1754,77 @@ function syncDocumentStatus(
         documentId
       )
       .count;
+  const row =
+    getDocumentRow(
+      database,
+      documentId
+    );
+  const pages =
+    getPagesForDocument(
+      database,
+      documentId
+    );
+  const document =
+    rowToDocument(
+      row
+    );
+  const aggregateText =
+    document
+      ? aggregateDocumentText(
+          document,
+          pages
+        )
+      : "";
+  const aggregateCleanText =
+    document
+      ? aggregateDocumentCleanText(
+          document,
+          pages
+        )
+      : "";
+  const quality =
+    buildTextQuality(
+      aggregateText
+    );
+  const nextTitleTags =
+    generateTitleTags(
+      aggregateCleanText
+    );
+  const nextKeywordTags =
+    generateKeywordTags(
+      aggregateCleanText
+    );
 
   database
     .prepare(`
       UPDATE documents
       SET indexed_pages = ?,
+          title_tags_json = ?,
+          keyword_tags_json = ?,
+          clean_text = COALESCE(NULLIF(clean_text, ''), ?),
+          text_quality = ?,
+          raw_word_count = ?,
+          clean_word_count = ?,
+          noise_ratio = ?,
           status = ?,
           updated_at = ?
       WHERE document_id = ?
     `)
     .run(
       Number(indexedPages),
+      toJson(
+        nextTitleTags,
+        []
+      ),
+      toJson(
+        nextKeywordTags,
+        []
+      ),
+      aggregateCleanText,
+      quality.quality,
+      quality.rawWordCount,
+      quality.cleanWordCount,
+      quality.noiseRatio,
       Number(pendingJobs) > 0
         ? "indexing"
         : "done",
@@ -1324,7 +1892,10 @@ function refreshSearchIndex(
         document.metadata || {}
       ),
       document.category || "",
-      document.text || ""
+      document.cleanText ||
+        buildTextQuality(
+          document.text || ""
+        ).cleanText
     );
 
   for (
@@ -1612,12 +2183,97 @@ export function getAllDocuments() {
 
 export function searchDocuments(query) {
 
-  // FTS is maintained for scale and future ranking, while the existing
-  // JavaScript scorer keeps current fuzzy OCR-tolerant behavior.
+  const ftsDocs =
+    searchDocumentsWithFts(
+      query
+    );
+
+  if (ftsDocs.length > 0) {
+    return searchDocumentsInDocs(
+      ftsDocs,
+      query
+    );
+  }
+
+  // Fallback keeps OCR-tolerant fuzzy behavior for misspellings/noisy text
+  // that SQLite FTS cannot match directly.
   return searchDocumentsInDocs(
     getAllDocuments(),
     query
   );
+}
+
+function buildFtsQuery(query) {
+
+  const tokens =
+    tokenize(query)
+      .filter(token =>
+        /^[a-z0-9]+$/.test(token)
+      )
+      .slice(0, 8);
+
+  if (tokens.length === 0) {
+    return "";
+  }
+
+  return tokens
+    .map(token =>
+      `"${token.replace(/"/g, "\"\"")}"`
+    )
+    .join(" AND ");
+}
+
+function searchDocumentsWithFts(query) {
+
+  const ftsQuery =
+    buildFtsQuery(
+      query
+    );
+
+  if (!ftsQuery) {
+    return [];
+  }
+
+  const database =
+    getDb();
+
+  try {
+    const rows =
+      database
+        .prepare(`
+          SELECT documents.*
+          FROM document_fts
+          JOIN documents
+            ON documents.document_id = document_fts.document_id
+          WHERE document_fts MATCH ?
+          ORDER BY bm25(document_fts)
+          LIMIT 100
+        `)
+        .all(
+          ftsQuery
+        );
+
+    return rows
+      .map(row =>
+        flattenDocument(
+          database,
+          row
+        )
+      )
+      .filter(Boolean);
+  } catch (error) {
+    log.warn(
+      "database.search.fts.failed",
+      {
+        query,
+        ftsQuery,
+        error:
+          error.message
+      }
+    );
+
+    return [];
+  }
 }
 
 export function claimNextOcrJob() {

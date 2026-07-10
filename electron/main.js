@@ -419,6 +419,10 @@ ipcMain.handle("extract-document-text", async (_, filePath) => {
         fileHash,
         chars:
           indexed.text.length,
+        cleanChars:
+          indexed.cleanText?.length ?? 0,
+        textQuality:
+          indexed.textQuality,
         pages:
           indexed.pages.length,
         queuedJobs:
@@ -439,6 +443,16 @@ ipcMain.handle("extract-document-text", async (_, filePath) => {
       fileHash,
       text:
         indexed.text,
+      cleanText:
+        indexed.cleanText,
+      textQuality:
+        indexed.textQuality,
+      rawWordCount:
+        indexed.rawWordCount,
+      cleanWordCount:
+        indexed.cleanWordCount,
+      noiseRatio:
+        indexed.noiseRatio,
       pages:
         indexed.pages,
       jobs:

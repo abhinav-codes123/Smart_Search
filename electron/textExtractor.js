@@ -14,6 +14,9 @@ import Tesseract from "tesseract.js";
 import {
   log
 } from "./logger.js";
+import {
+  buildTextQuality
+} from "./textQuality.js";
 
 const require =
   createRequire(import.meta.url);
@@ -972,17 +975,32 @@ async function extractPdfPageTextFromPage(
     );
   }
 
+  const text =
+    normalizeWhitespace(
+      [
+        embeddedText,
+        ocrText
+      ]
+      .filter(Boolean)
+      .join("\n\n")
+    );
+
+  const quality =
+    buildTextQuality(text);
+
   return {
     pageNumber,
-    text:
-      normalizeWhitespace(
-        [
-          embeddedText,
-          ocrText
-        ]
-          .filter(Boolean)
-          .join("\n\n")
-      ),
+    text,
+    cleanText:
+      quality.cleanText,
+    textQuality:
+      quality.quality,
+    rawWordCount:
+      quality.rawWordCount,
+    cleanWordCount:
+      quality.cleanWordCount,
+    noiseRatio:
+      quality.noiseRatio,
     embeddedText,
     ocrText,
     hasImage
@@ -1180,6 +1198,10 @@ export async function extractFileForIndex(
       await extractTextFromFile(
         filePath
       );
+    const quality =
+      buildTextQuality(
+        text
+      );
 
     log.info(
       "index.extract.completed",
@@ -1188,6 +1210,10 @@ export async function extractFileForIndex(
         extension,
         chars:
           text.length,
+        cleanChars:
+          quality.cleanText.length,
+        textQuality:
+          quality.quality,
         status:
           "done"
       }
@@ -1195,6 +1221,16 @@ export async function extractFileForIndex(
 
     return {
       text,
+      cleanText:
+        quality.cleanText,
+      textQuality:
+        quality.quality,
+      rawWordCount:
+        quality.rawWordCount,
+      cleanWordCount:
+        quality.cleanWordCount,
+      noiseRatio:
+        quality.noiseRatio,
       pages: [],
       jobs: [],
       totalPages:
@@ -1297,16 +1333,44 @@ export async function extractFileForIndex(
       );
     }
 
+    const rawText =
+      normalizeWhitespace(
+        pages
+          .map(page =>
+            page.text
+          )
+          .filter(Boolean)
+          .join("\n\n")
+      );
+
+    const cleanText =
+      normalizeWhitespace(
+        pages
+          .map(page =>
+            page.cleanText ||
+            page.text
+          )
+          .filter(Boolean)
+          .join("\n\n")
+      );
+
+    const quality =
+      buildTextQuality(
+        rawText
+      );
+
     const indexed = {
       text:
-        normalizeWhitespace(
-          pages
-            .map(page =>
-              page.text
-            )
-            .filter(Boolean)
-            .join("\n\n")
-        ),
+        rawText,
+      cleanText,
+      textQuality:
+        quality.quality,
+      rawWordCount:
+        quality.rawWordCount,
+      cleanWordCount:
+        quality.cleanWordCount,
+      noiseRatio:
+        quality.noiseRatio,
       pages,
       jobs,
       totalPages:
@@ -1324,6 +1388,8 @@ export async function extractFileForIndex(
         extension,
         chars:
           indexed.text.length,
+        cleanChars:
+          indexed.cleanText.length,
         indexedPages:
           pages.length,
         queuedJobs:

@@ -82,7 +82,7 @@ const EMPTY_JSON_DB = {
   pages: [],
   jobs: []
 };
-const CLEAN_TEXT_VERSION = 4;
+const CLEAN_TEXT_VERSION = 7;
 
 let db;
 

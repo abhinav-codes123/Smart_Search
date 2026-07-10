@@ -78,8 +78,12 @@ const STOP_WORDS =
     "ut",
     "yo",
     "dy",
+    "each",
+    "hence",
     "pd",
     "op",
+    "thing",
+    "ving",
     "onto",
     "over",
     "under",
@@ -119,8 +123,10 @@ const DOMAIN_WORDS =
     "model",
     "notes",
     "output",
+    "paper",
     "presentation",
     "project",
+    "question",
     "read",
     "search",
     "student",
@@ -133,13 +139,19 @@ const DOMAIN_WORDS =
     "write"
   ]);
 
+const IMPORTANT_IDENTIFIER_PATTERNS = [
+  /^[a-z]{2,6}\d{2,4}$/,
+  /^(unit|chapter|module|lesson|assignment|lab|practical)\d{1,3}$/,
+  /^(math|maths)\d{1,4}$/
+];
+
 const OCR_CORRECTIONS = [
   [
     /^(tusing|tuving|toving|taving|tuning|tsing|trig|tung|tiving|taxing)$/,
     "turing"
   ],
   [
-    /^(maching|moching|macking|mochine|wachine|wockine|mocking|mocked|mocks|mache)$/,
+    /^(maching|moching|macking|mackie|mochine|wachine|wockine|mocking|mocked|mocks|mache)$/,
     "machine"
   ],
   [
@@ -207,12 +219,45 @@ function normalizeKeyword(word) {
   return word;
 }
 
+function isImportantIdentifier(word) {
+
+  if (
+    word.length < 4 ||
+    word.length > 12
+  ) {
+    return false;
+  }
+
+  if (
+    !/[a-z]/.test(word) ||
+    !/\d/.test(word)
+  ) {
+    return false;
+  }
+
+  if (
+    /(.)\1{3,}/.test(word)
+  ) {
+    return false;
+  }
+
+  return IMPORTANT_IDENTIFIER_PATTERNS.some(pattern =>
+    pattern.test(word)
+  );
+}
+
 function hasVowel(word) {
 
   return /[aeiou]/.test(word);
 }
 
 function isNoisyWord(word) {
+
+  if (
+    isImportantIdentifier(word)
+  ) {
+    return false;
+  }
 
   if (
     word.length < 3 ||
@@ -249,36 +294,198 @@ function isNoisyWord(word) {
   return false;
 }
 
-function cleanTitleLine(line) {
+function hasGoodWordShape(word) {
 
-  return line
-    .split(/\b/)
-    .map(part => {
-      const lower =
-        part.toLowerCase();
-      const corrected =
-        normalizeKeyword(lower);
+  if (
+    DOMAIN_WORDS.has(word) ||
+    isImportantIdentifier(word)
+  ) {
+    return true;
+  }
 
-      if (
-        corrected === lower
-      ) {
-        return part;
-      }
+  if (
+    word.length < 4 ||
+    word.length > 18
+  ) {
+    return false;
+  }
 
-      return /^[A-Z]/.test(part)
-        ? corrected.charAt(0).toUpperCase() +
-            corrected.slice(1)
-        : corrected;
-    })
-    .join("")
-    .replace(
-      /\s+/g,
-      " "
-    )
-    .trim();
+  if (
+    /\d/.test(word)
+  ) {
+    return false;
+  }
+
+  if (
+    !hasVowel(word)
+  ) {
+    return false;
+  }
+
+  if (
+    /[bcdfghjklmnpqrstvwxyz]{5,}/.test(word)
+  ) {
+    return false;
+  }
+
+  if (
+    /[aeiou]{4,}/.test(word)
+  ) {
+    return false;
+  }
+
+  return true;
 }
 
-function scoreTitleLine(line, index) {
+function scoreKeywordCandidate(
+  word,
+  count,
+  firstIndex
+) {
+
+  if (
+    isImportantIdentifier(word)
+  ) {
+    return 100 - firstIndex * 0.001;
+  }
+
+  if (
+    DOMAIN_WORDS.has(word)
+  ) {
+    return count * 4 + 12 - firstIndex * 0.001;
+  }
+
+  if (
+    count >= 3 &&
+    hasGoodWordShape(word)
+  ) {
+    return count * 2 - firstIndex * 0.001;
+  }
+
+  return -Infinity;
+}
+
+function formatTitleWord(word) {
+
+  if (
+    isImportantIdentifier(word)
+  ) {
+    return word.toUpperCase();
+  }
+
+  return word.charAt(0).toUpperCase() +
+    word.slice(1);
+}
+
+function buildGeneratedTitle(keywords) {
+
+  const identifiers =
+    keywords.filter(isImportantIdentifier);
+  const topicWords =
+    keywords.filter(word =>
+      DOMAIN_WORDS.has(word) &&
+      ![
+        "document",
+        "file",
+        "notes",
+        "page",
+        "paper",
+        "question",
+        "unit"
+      ].includes(word)
+    );
+
+  if (
+    identifiers.length > 0
+  ) {
+    const pieces =
+      [identifiers[0]];
+
+    if (
+      keywords.includes("question") &&
+      keywords.includes("paper")
+    ) {
+      pieces.push(
+        "question",
+        "paper"
+      );
+    } else if (
+      keywords.includes("assignment")
+    ) {
+      pieces.push("assignment");
+    } else {
+      pieces.push(
+        ...topicWords.slice(0, 2)
+      );
+    }
+
+    if (
+      pieces.length === 1
+    ) {
+      pieces.push("notes");
+    }
+
+    return pieces
+      .map(formatTitleWord)
+      .join(" ");
+  }
+
+  if (
+    keywords.includes("turing") &&
+    keywords.includes("machine")
+  ) {
+    return "Turing Machine Notes";
+  }
+
+  if (
+    topicWords.length >= 2
+  ) {
+    return [
+      ...topicWords.slice(0, 3),
+      "notes"
+    ]
+      .map(formatTitleWord)
+      .join(" ");
+  }
+
+  return "";
+}
+
+function cleanTitleLine(
+  line,
+  keywordSet
+) {
+
+  const seen =
+    new Set();
+  const words =
+    tokenizeLine(line)
+      .map(normalizeKeyword)
+      .filter(word =>
+        keywordSet.has(word) ||
+        isImportantIdentifier(word)
+      )
+      .filter(word => {
+        if (
+          seen.has(word)
+        ) {
+          return false;
+        }
+
+        seen.add(word);
+        return true;
+      });
+
+  return words
+    .map(formatTitleWord)
+    .join(" ");
+}
+
+function scoreTitleLine(
+  line,
+  index,
+  keywordSet
+) {
 
   const trimmed =
     line.trim();
@@ -321,7 +528,8 @@ function scoreTitleLine(line, index) {
   const usefulWords =
     words.filter(
       word =>
-        !isNoisyWord(word)
+        keywordSet.has(word) ||
+        isImportantIdentifier(word)
     );
 
   if (
@@ -336,12 +544,18 @@ function scoreTitleLine(line, index) {
         DOMAIN_WORDS.has(word)
     )
       .length;
+  const identifierHits =
+    usefulWords.filter(
+      isImportantIdentifier
+    )
+      .length;
   const noiseCount =
     words.length -
     usefulWords.length;
 
   return usefulWords.length * 2 +
     domainHits * 3 +
+    identifierHits * 6 +
     alphaRatio * 2 -
     symbolRatio * 3 -
     noiseCount -
@@ -349,6 +563,13 @@ function scoreTitleLine(line, index) {
 }
 
 export function generateTitleTags(text) {
+
+  const keywordTags =
+    generateKeywordTags(text);
+  const keywordSet =
+    new Set(keywordTags);
+  const generatedTitle =
+    buildGeneratedTitle(keywordTags);
 
   const candidates =
     text
@@ -366,33 +587,49 @@ export function generateTitleTags(text) {
         ...candidate,
         cleaned:
           cleanTitleLine(
-            candidate.original
+            candidate.original,
+            keywordSet
           ),
         score:
           scoreTitleLine(
             candidate.original,
-            candidate.index
+            candidate.index,
+            keywordSet
           )
       }))
       .filter(candidate =>
         Number.isFinite(
           candidate.score
-        )
+        ) &&
+        candidate.cleaned
       )
       .sort(
         (a, b) =>
           b.score - a.score
       );
 
-  return candidates
-    .slice(0, 5)
-    .sort(
-      (a, b) =>
-        a.index - b.index
+  const lineTitles =
+    candidates
+      .slice(0, 5)
+      .sort(
+        (a, b) =>
+          a.index - b.index
+      )
+      .map(candidate =>
+        candidate.cleaned
+      );
+
+  return [
+    generatedTitle,
+    ...lineTitles
+  ]
+    .filter(Boolean)
+    .filter((tag, index, tags) =>
+      tags.findIndex(candidate =>
+        candidate.toLowerCase() === tag.toLowerCase()
+      ) === index
     )
-    .map(candidate =>
-      candidate.cleaned
-    );
+    .slice(0, 5);
 }
 
 export function generateKeywordTags(text) {
@@ -429,39 +666,36 @@ export function generateKeywordTags(text) {
   return [
     ...counts.entries()
   ]
+    .map(([
+      word,
+      count
+    ]) => ({
+      word,
+      count,
+      score:
+        scoreKeywordCandidate(
+          word,
+          count,
+          firstSeen.get(word)
+        )
+    }))
+    .filter(candidate =>
+      Number.isFinite(
+        candidate.score
+      )
+    )
     .sort((a, b) => {
-      const [
-        wordA,
-        countA
-      ] = a;
-      const [
-        wordB,
-        countB
-      ] = b;
-      const scoreA =
-        countA +
-        (
-          DOMAIN_WORDS.has(wordA)
-            ? 2
-            : 0
-        );
-      const scoreB =
-        countB +
-        (
-          DOMAIN_WORDS.has(wordB)
-            ? 2
-            : 0
-        );
-
       if (
-        scoreA !== scoreB
+        a.score !== b.score
       ) {
-        return scoreB - scoreA;
+        return b.score - a.score;
       }
 
-      return firstSeen.get(wordA) -
-        firstSeen.get(wordB);
+      return firstSeen.get(a.word) -
+        firstSeen.get(b.word);
     })
-    .map(([word]) => word)
+    .map(candidate =>
+      candidate.word
+    )
     .slice(0, 20);
 }

@@ -625,6 +625,62 @@ try {
   assert.ok(
     buildTextQuality(noisyOcrText).cleanWordCount > 0
   );
+
+  const identifierText =
+    "Question Paper BCS303 BAS302 Unit5 Assignment04 MATHS4 " +
+    "qonevade golpd veevnbeys mackie rio ving uniks5 unwixa5";
+  const identifierKeywords =
+    generateKeywordTags(
+      identifierText
+    );
+
+  assert.ok(
+    identifierKeywords.includes("bcs303")
+  );
+  assert.ok(
+    identifierKeywords.includes("bas302")
+  );
+  assert.ok(
+    identifierKeywords.includes("unit5")
+  );
+  assert.ok(
+    identifierKeywords.includes("assignment04")
+  );
+  assert.ok(
+    identifierKeywords.includes("maths4")
+  );
+  assert.ok(
+    !identifierKeywords.includes("qonevade")
+  );
+  assert.ok(
+    !identifierKeywords.includes("golpd")
+  );
+  assert.ok(
+    !identifierKeywords.includes("mackie")
+  );
+  assert.ok(
+    !identifierKeywords.includes("rio")
+  );
+  assert.ok(
+    !identifierKeywords.includes("uniks5")
+  );
+  assert.ok(
+    !identifierKeywords.includes("unwixa5")
+  );
+
+  const identifierTitleTags =
+    generateTitleTags(
+      identifierText
+    );
+
+  assert.match(
+    identifierTitleTags[0],
+    /BCS303/
+  );
+  assert.match(
+    cleanExtractedText(identifierText),
+    /\bbcs303\b/
+  );
   console.log("PASS OCR-safe tag generation");
 
   await assertExtracts(

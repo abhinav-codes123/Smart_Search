@@ -68,6 +68,7 @@ const OCR_NOISE_WORDS =
     "dy",
     "ov",
     "mle",
+    "ving",
     "wih",
     "jod",
     "qnd",
@@ -80,7 +81,7 @@ const OCR_CORRECTIONS = [
     "turing"
   ],
   [
-    /^(maching|moching|macking|mochine|wachine|wockine|mocking|moche|mache|mockine)$/,
+    /^(maching|moching|macking|mackie|mochine|wachine|wockine|mocking|moche|mache|mockine)$/,
     "machine"
   ],
   [
@@ -125,6 +126,12 @@ const OCR_CORRECTIONS = [
   ]
 ];
 
+const IMPORTANT_IDENTIFIER_PATTERNS = [
+  /^[a-z]{2,6}\d{2,4}$/,
+  /^(unit|chapter|module|lesson|assignment|lab|practical)\d{1,3}$/,
+  /^(math|maths)\d{1,4}$/
+];
+
 function normalizeWhitespace(text) {
 
   return String(text ?? "")
@@ -160,7 +167,40 @@ function hasVowel(token) {
   return /[aeiou]/.test(token);
 }
 
+function isImportantIdentifier(token) {
+
+  if (
+    token.length < 4 ||
+    token.length > 12
+  ) {
+    return false;
+  }
+
+  if (
+    !/[a-z]/.test(token) ||
+    !/\d/.test(token)
+  ) {
+    return false;
+  }
+
+  if (
+    /(.)\1{3,}/.test(token)
+  ) {
+    return false;
+  }
+
+  return IMPORTANT_IDENTIFIER_PATTERNS.some(pattern =>
+    pattern.test(token)
+  );
+}
+
 function isLikelyNoiseToken(token) {
+
+  if (
+    isImportantIdentifier(token)
+  ) {
+    return false;
+  }
 
   if (
     token.length < 3 ||

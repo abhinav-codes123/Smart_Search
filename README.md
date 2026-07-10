@@ -214,5 +214,4 @@ scan locally -> understand content -> suggest groups -> explain -> user approves
 
 ## License
 
-This project is intended to use the Apache License 2.0.
-
+Licensed under the [Apache License 2.0](LICENSE).

@@ -17,6 +17,9 @@ import {
 import {
   buildTextQuality
 } from "./textQuality.js";
+import {
+  config
+} from "./config.js";
 
 const require =
   createRequire(import.meta.url);
@@ -37,23 +40,13 @@ const execFile =
   );
 
 const PDF_OCR_PAGE_LIMIT =
-  Number(
-    process.env.SMART_SEARCH_PDF_OCR_PAGE_LIMIT ?? 0
-  );
+  config.ocr.pdfOcrPageLimit;
 const OFFICE_IMAGE_OCR_LIMIT =
-  Number(
-    process.env.SMART_SEARCH_OFFICE_IMAGE_OCR_LIMIT ?? 0
-  );
+  config.ocr.officeImageOcrLimit;
 const PDF_RENDER_SCALE =
-  Number(
-    process.env.SMART_SEARCH_PDF_RENDER_SCALE ?? 4
-  );
+  config.ocr.pdfRenderScale;
 const INITIAL_PDF_SYNC_PAGES =
-  Number(
-    process.env.SMART_SEARCH_INITIAL_PDF_SYNC_PAGES ?? 3
-  );
-const OCR_FAST_MODE =
-  process.env.SMART_SEARCH_OCR_MODE === "fast";
+  config.ocr.initialPdfSyncPages;
 
 const PDF_IMAGE_OPS =
   new Set([
@@ -179,6 +172,33 @@ function normalizeWhitespace(text) {
       "\n\n"
     )
     .trim();
+}
+
+function shouldRunEnhancedOcr(rawPass) {
+
+  if (
+    config.ocr.mode === "fast"
+  ) {
+    return false;
+  }
+
+  if (
+    config.ocr.mode === "accurate"
+  ) {
+    return true;
+  }
+
+  const confidence =
+    Number(
+      rawPass.confidence ?? 0
+    );
+
+  return !(
+    rawPass.text.length >=
+      config.ocr.adaptiveMinChars &&
+    confidence >=
+      config.ocr.adaptiveMinConfidence
+  );
 }
 
 function decodeXmlEntities(text) {
@@ -500,7 +520,30 @@ async function extractImageText(filePath) {
     passes.push(rawPass);
   }
 
-  if (!OCR_FAST_MODE) {
+  const runEnhanced =
+    shouldRunEnhancedOcr(
+      rawPass
+    );
+
+  log.info(
+    "ocr.image.pass-plan",
+    {
+      filePath,
+      mode:
+        config.ocr.mode,
+      runEnhanced,
+      rawChars:
+        rawPass.text.length,
+      rawConfidence:
+        rawPass.confidence,
+      minChars:
+        config.ocr.adaptiveMinChars,
+      minConfidence:
+        config.ocr.adaptiveMinConfidence
+    }
+  );
+
+  if (runEnhanced) {
     const softImage =
       await createEnhancedOcrImage(
         filePath,

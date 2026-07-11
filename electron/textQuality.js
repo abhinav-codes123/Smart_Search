@@ -1,79 +1,10 @@
-const STOP_WORDS =
-  new Set([
-    "a",
-    "an",
-    "and",
-    "are",
-    "as",
-    "at",
-    "be",
-    "been",
-    "being",
-    "by",
-    "for",
-    "from",
-    "has",
-    "have",
-    "in",
-    "into",
-    "is",
-    "it",
-    "of",
-    "on",
-    "or",
-    "that",
-    "the",
-    "their",
-    "then",
-    "there",
-    "this",
-    "to",
-    "was",
-    "were",
-    "which",
-    "with"
-  ]);
-
-const OCR_NOISE_WORDS =
-  new Set([
-    "fhe",
-    "fre",
-    "hhe",
-    "hos",
-    "hoy",
-    "hoo",
-    "ahi",
-    "bre",
-    "bid",
-    "chine",
-    "ction",
-    "diphin",
-    "hay",
-    "ithe",
-    "lory",
-    "mookel",
-    "anpuk",
-    "ote",
-    "ore",
-    "ting",
-    "veevnbeys",
-    "wnemy",
-    "fov",
-    "foy",
-    "te",
-    "tk",
-    "th",
-    "ym",
-    "pd",
-    "dy",
-    "ov",
-    "mle",
-    "ving",
-    "wih",
-    "jod",
-    "qnd",
-    "gnd"
-  ]);
+import {
+  hasPlausibleWordShape,
+  isDictionaryWord,
+  isImportantIdentifier,
+  isOcrNoiseWord,
+  isStopWord
+} from "../src/utils/dictionary.js";
 
 const OCR_CORRECTIONS = [
   [
@@ -126,12 +57,6 @@ const OCR_CORRECTIONS = [
   ]
 ];
 
-const IMPORTANT_IDENTIFIER_PATTERNS = [
-  /^[a-z]{2,6}\d{2,4}$/,
-  /^(unit|chapter|module|lesson|assignment|lab|practical)\d{1,3}$/,
-  /^(math|maths)\d{1,4}$/
-];
-
 function normalizeWhitespace(text) {
 
   return String(text ?? "")
@@ -162,38 +87,6 @@ function normalizeToken(token) {
   return lower;
 }
 
-function hasVowel(token) {
-
-  return /[aeiou]/.test(token);
-}
-
-function isImportantIdentifier(token) {
-
-  if (
-    token.length < 4 ||
-    token.length > 12
-  ) {
-    return false;
-  }
-
-  if (
-    !/[a-z]/.test(token) ||
-    !/\d/.test(token)
-  ) {
-    return false;
-  }
-
-  if (
-    /(.)\1{3,}/.test(token)
-  ) {
-    return false;
-  }
-
-  return IMPORTANT_IDENTIFIER_PATTERNS.some(pattern =>
-    pattern.test(token)
-  );
-}
-
 function isLikelyNoiseToken(token) {
 
   if (
@@ -210,13 +103,13 @@ function isLikelyNoiseToken(token) {
   }
 
   if (
-    STOP_WORDS.has(token)
+    isStopWord(token)
   ) {
     return false;
   }
 
   if (
-    OCR_NOISE_WORDS.has(token)
+    isOcrNoiseWord(token)
   ) {
     return true;
   }
@@ -229,13 +122,18 @@ function isLikelyNoiseToken(token) {
     return true;
   }
 
-  if (/[a-z]\d[a-z]/.test(token)) {
+  if (/\d/.test(token)) {
     return true;
   }
 
   if (
-    !hasVowel(token) &&
-    !/^\d+[a-z]?$/.test(token)
+    isDictionaryWord(token)
+  ) {
+    return false;
+  }
+
+  if (
+    !hasPlausibleWordShape(token)
   ) {
     return true;
   }
@@ -255,7 +153,7 @@ function cleanLine(line) {
   const useful =
     tokens.filter(token =>
       !isLikelyNoiseToken(token) ||
-      STOP_WORDS.has(token)
+      isStopWord(token)
     );
 
   if (

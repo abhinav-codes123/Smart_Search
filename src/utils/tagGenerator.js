@@ -1,149 +1,11 @@
-const STOP_WORDS =
-  new Set([
-    "the",
-    "and",
-    "for",
-    "with",
-    "this",
-    "that",
-    "from",
-    "are",
-    "was",
-    "you",
-    "your",
-    "have",
-    "has",
-    "will",
-    "into",
-    "during",
-    "then",
-    "than",
-    "there",
-    "their",
-    "which",
-    "while",
-    "where",
-    "when",
-    "what",
-    "how",
-    "were",
-    "been",
-    "being",
-    "also",
-    "only",
-    "some",
-    "same",
-    "such",
-    "known",
-    "one",
-    "can",
-    "con",
-    "cow",
-    "man",
-    "fhe",
-    "fre",
-    "hhe",
-    "hos",
-    "hoy",
-    "bay",
-    "boyd",
-    "fov",
-    "foy",
-    "ahi",
-    "bre",
-    "bid",
-    "chine",
-    "ction",
-    "diph",
-    "diphin",
-    "facilis",
-    "fof",
-    "hay",
-    "ithe",
-    "mookel",
-    "ote",
-    "ore",
-    "ting",
-    "veevnbeys",
-    "wnemy",
-    "mle",
-    "ym",
-    "th",
-    "te",
-    "tk",
-    "ha",
-    "ho",
-    "oh",
-    "ov",
-    "ut",
-    "yo",
-    "dy",
-    "each",
-    "hence",
-    "pd",
-    "op",
-    "thing",
-    "ving",
-    "onto",
-    "over",
-    "under",
-    "page",
-    "fig",
-    "figure",
-    "source",
-    "image",
-    "file",
-    "from",
-    "of",
-    "to",
-    "in",
-    "on"
-  ]);
-
-const DOMAIN_WORDS =
-  new Set([
-    "assignment",
-    "basics",
-    "blockchain",
-    "capability",
-    "certificate",
-    "college",
-    "completion",
-    "computer",
-    "control",
-    "course",
-    "database",
-    "document",
-    "engineering",
-    "finite",
-    "input",
-    "machine",
-    "mathematics",
-    "memory",
-    "model",
-    "notes",
-    "output",
-    "paper",
-    "presentation",
-    "project",
-    "question",
-    "read",
-    "search",
-    "student",
-    "summit",
-    "system",
-    "tape",
-    "technical",
-    "turing",
-    "unit",
-    "write"
-  ]);
-
-const IMPORTANT_IDENTIFIER_PATTERNS = [
-  /^[a-z]{2,6}\d{2,4}$/,
-  /^(unit|chapter|module|lesson|assignment|lab|practical)\d{1,3}$/,
-  /^(math|maths)\d{1,4}$/
-];
+import {
+  hasPlausibleWordShape,
+  isDictionaryWord,
+  isDomainWord,
+  isImportantIdentifier,
+  isOcrNoiseWord,
+  isStopWord
+} from "./dictionary.js";
 
 const OCR_CORRECTIONS = [
   [
@@ -219,38 +81,6 @@ function normalizeKeyword(word) {
   return word;
 }
 
-function isImportantIdentifier(word) {
-
-  if (
-    word.length < 4 ||
-    word.length > 12
-  ) {
-    return false;
-  }
-
-  if (
-    !/[a-z]/.test(word) ||
-    !/\d/.test(word)
-  ) {
-    return false;
-  }
-
-  if (
-    /(.)\1{3,}/.test(word)
-  ) {
-    return false;
-  }
-
-  return IMPORTANT_IDENTIFIER_PATTERNS.some(pattern =>
-    pattern.test(word)
-  );
-}
-
-function hasVowel(word) {
-
-  return /[aeiou]/.test(word);
-}
-
 function isNoisyWord(word) {
 
   if (
@@ -267,7 +97,8 @@ function isNoisyWord(word) {
   }
 
   if (
-    STOP_WORDS.has(word)
+    isStopWord(word) ||
+    isOcrNoiseWord(word)
   ) {
     return true;
   }
@@ -285,8 +116,14 @@ function isNoisyWord(word) {
   }
 
   if (
-    !hasVowel(word) &&
-    !DOMAIN_WORDS.has(word)
+    /\d/.test(word)
+  ) {
+    return true;
+  }
+
+  if (
+    !isDictionaryWord(word) &&
+    !hasPlausibleWordShape(word)
   ) {
     return true;
   }
@@ -297,44 +134,13 @@ function isNoisyWord(word) {
 function hasGoodWordShape(word) {
 
   if (
-    DOMAIN_WORDS.has(word) ||
+    isDictionaryWord(word) ||
     isImportantIdentifier(word)
   ) {
     return true;
   }
 
-  if (
-    word.length < 4 ||
-    word.length > 18
-  ) {
-    return false;
-  }
-
-  if (
-    /\d/.test(word)
-  ) {
-    return false;
-  }
-
-  if (
-    !hasVowel(word)
-  ) {
-    return false;
-  }
-
-  if (
-    /[bcdfghjklmnpqrstvwxyz]{5,}/.test(word)
-  ) {
-    return false;
-  }
-
-  if (
-    /[aeiou]{4,}/.test(word)
-  ) {
-    return false;
-  }
-
-  return true;
+  return hasPlausibleWordShape(word);
 }
 
 function scoreKeywordCandidate(
@@ -350,9 +156,15 @@ function scoreKeywordCandidate(
   }
 
   if (
-    DOMAIN_WORDS.has(word)
+    isDomainWord(word)
   ) {
     return count * 4 + 12 - firstIndex * 0.001;
+  }
+
+  if (
+    isDictionaryWord(word)
+  ) {
+    return count * 2 + 6 - firstIndex * 0.001;
   }
 
   if (
@@ -383,7 +195,7 @@ function buildGeneratedTitle(keywords) {
     keywords.filter(isImportantIdentifier);
   const topicWords =
     keywords.filter(word =>
-      DOMAIN_WORDS.has(word) &&
+      isDomainWord(word) &&
       ![
         "document",
         "file",
@@ -541,7 +353,7 @@ function scoreTitleLine(
   const domainHits =
     usefulWords.filter(
       word =>
-        DOMAIN_WORDS.has(word)
+        isDomainWord(word)
     )
       .length;
   const identifierHits =

@@ -30,6 +30,12 @@ import {
   generateKeywordTags,
   generateTitleTags
 } from "../src/utils/tagGenerator.js";
+import {
+  getDictionarySignal,
+  getDictionaryStats,
+  isDictionaryWord,
+  isImportantIdentifier
+} from "../src/utils/dictionary.js";
 
 const require =
   createRequire(import.meta.url);
@@ -626,6 +632,36 @@ try {
     buildTextQuality(noisyOcrText).cleanWordCount > 0
   );
 
+  const dictionaryStats =
+    getDictionaryStats();
+
+  assert.ok(
+    dictionaryStats.commonWords > 100
+  );
+  assert.ok(
+    dictionaryStats.domainWords > 20
+  );
+  assert.equal(
+    isDictionaryWord("deadline"),
+    true
+  );
+  assert.equal(
+    isDictionaryWord("qonevade"),
+    false
+  );
+  assert.equal(
+    isImportantIdentifier("BCS303"),
+    true
+  );
+  assert.equal(
+    isImportantIdentifier("uniks5"),
+    false
+  );
+  assert.equal(
+    getDictionarySignal("qonevade"),
+    "noise"
+  );
+
   const identifierText =
     "Question Paper BCS303 BAS302 Unit5 Assignment04 MATHS4 " +
     "qonevade golpd veevnbeys mackie rio ving uniks5 unwixa5";
@@ -666,6 +702,33 @@ try {
   );
   assert.ok(
     !identifierKeywords.includes("unwixa5")
+  );
+
+  const dictionaryKeywords =
+    generateKeywordTags(
+      "Project deadline rubric evaluation qonevade golpd uniks5 BVE301"
+    );
+
+  assert.ok(
+    dictionaryKeywords.includes("deadline")
+  );
+  assert.ok(
+    dictionaryKeywords.includes("rubric")
+  );
+  assert.ok(
+    dictionaryKeywords.includes("evaluation")
+  );
+  assert.ok(
+    dictionaryKeywords.includes("bve301")
+  );
+  assert.ok(
+    !dictionaryKeywords.includes("qonevade")
+  );
+  assert.ok(
+    !dictionaryKeywords.includes("golpd")
+  );
+  assert.ok(
+    !dictionaryKeywords.includes("uniks5")
   );
 
   const identifierTitleTags =

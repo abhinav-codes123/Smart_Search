@@ -9,6 +9,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import {
   insertDocument,
+  getDocumentByFileHash,
   getAllDocuments,
   searchDocuments,
   claimNextOcrJob,
@@ -29,6 +30,9 @@ import {
   log,
   setLogTarget
 } from "./logger.js";
+import {
+  config
+} from "./config.js";
 import fs from "fs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -407,6 +411,68 @@ ipcMain.handle("extract-document-text", async (_, filePath) => {
       }
     );
 
+    if (
+      config.ocr.skipDuplicateExtraction
+    ) {
+      const existingDocument =
+        getDocumentByFileHash(
+          fileHash
+        );
+
+      if (
+        existingDocument &&
+        existingDocument.status !== "failed" &&
+        (
+          existingDocument.cleanText ||
+          existingDocument.text ||
+          existingDocument.pages?.length > 0
+        )
+      ) {
+        log.info(
+          "document.extract.skipped-duplicate",
+          {
+            filePath,
+            fileHash,
+            documentId:
+              existingDocument.documentId,
+            status:
+              existingDocument.status,
+            chars:
+              existingDocument.text?.length ?? 0,
+            cleanChars:
+              existingDocument.cleanText?.length ?? 0
+          }
+        );
+
+        return {
+          success: true,
+          duplicate: true,
+          documentId:
+            existingDocument.documentId,
+          fileHash,
+          text:
+            existingDocument.text || "",
+          cleanText:
+            existingDocument.cleanText || "",
+          textQuality:
+            existingDocument.textQuality,
+          rawWordCount:
+            existingDocument.rawWordCount,
+          cleanWordCount:
+            existingDocument.cleanWordCount,
+          noiseRatio:
+            existingDocument.noiseRatio,
+          pages:
+            existingDocument.pages || [],
+          jobs: [],
+          totalPages:
+            existingDocument.totalPages,
+          status:
+            existingDocument.status || "done"
+        };
+      }
+    }
+
     const indexed =
       await extractFileForIndex(
         filePath
@@ -512,7 +578,22 @@ ipcMain.handle(
         }
       );
 
-      startOcrQueue();
+      if (
+        config.ocr.startQueueWhenNoJobs ||
+        (document.jobs || []).length > 0
+      ) {
+        startOcrQueue();
+      } else {
+        log.info(
+          "ocr.queue.skipped-no-new-jobs",
+          {
+            documentId:
+              savedDocument.documentId,
+            filePath:
+              savedDocument.filePath
+          }
+        );
+      }
 
       return {
         success: true

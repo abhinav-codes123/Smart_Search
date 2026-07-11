@@ -23,6 +23,9 @@ import {
   generateKeywordTags,
   generateTitleTags
 } from "../src/utils/tagGenerator.js";
+import {
+  config
+} from "./config.js";
 
 const {
   app
@@ -43,13 +46,13 @@ const DATA_DIR =
       );
 
 const JSON_DB_PATH =
-  process.env.SMART_SEARCH_JSON_DB_PATH ||
+  config.data.jsonDbPath ||
   (
-    process.env.SMART_SEARCH_DB_PATH &&
+    config.data.dbPath &&
       path.extname(
-        process.env.SMART_SEARCH_DB_PATH
+        config.data.dbPath
       ) === ".json"
-      ? process.env.SMART_SEARCH_DB_PATH
+      ? config.data.dbPath
       : path.join(
           DATA_DIR,
           "documents.json"
@@ -57,19 +60,19 @@ const JSON_DB_PATH =
   );
 
 const SQLITE_DB_PATH =
-  process.env.SMART_SEARCH_SQLITE_DB_PATH ||
+  config.data.sqliteDbPath ||
   (
-    process.env.SMART_SEARCH_DB_PATH &&
+    config.data.dbPath &&
       [
         ".sqlite",
         ".sqlite3",
         ".db"
       ].includes(
         path.extname(
-          process.env.SMART_SEARCH_DB_PATH
+          config.data.dbPath
         )
       )
-      ? process.env.SMART_SEARCH_DB_PATH
+      ? config.data.dbPath
       : JSON_DB_PATH.replace(
           /\.json$/i,
           ".sqlite"
@@ -82,7 +85,7 @@ const EMPTY_JSON_DB = {
   pages: [],
   jobs: []
 };
-const CLEAN_TEXT_VERSION = 7;
+const CLEAN_TEXT_VERSION = 8;
 
 let db;
 
@@ -2179,6 +2182,29 @@ export function getAllDocuments() {
       )
     )
     .filter(Boolean);
+}
+
+export function getDocumentByFileHash(fileHash) {
+
+  if (!fileHash) {
+    return null;
+  }
+
+  const database =
+    getDb();
+  const row =
+    database
+      .prepare(
+        "SELECT * FROM documents WHERE file_hash = ?"
+      )
+      .get(
+        fileHash
+      );
+
+  return flattenDocument(
+    database,
+    row
+  );
 }
 
 export function searchDocuments(query) {

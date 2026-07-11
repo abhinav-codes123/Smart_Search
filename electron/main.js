@@ -30,9 +30,6 @@ import {
   log,
   setLogTarget
 } from "./logger.js";
-import {
-  config
-} from "./config.js";
 import fs from "fs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -411,66 +408,62 @@ ipcMain.handle("extract-document-text", async (_, filePath) => {
       }
     );
 
+    const existingDocument =
+      getDocumentByFileHash(
+        fileHash
+      );
+
     if (
-      config.ocr.skipDuplicateExtraction
+      existingDocument &&
+      existingDocument.status !== "failed" &&
+      (
+        existingDocument.cleanText ||
+        existingDocument.text ||
+        existingDocument.pages?.length > 0
+      )
     ) {
-      const existingDocument =
-        getDocumentByFileHash(
-          fileHash
-        );
-
-      if (
-        existingDocument &&
-        existingDocument.status !== "failed" &&
-        (
-          existingDocument.cleanText ||
-          existingDocument.text ||
-          existingDocument.pages?.length > 0
-        )
-      ) {
-        log.info(
-          "document.extract.skipped-duplicate",
-          {
-            filePath,
-            fileHash,
-            documentId:
-              existingDocument.documentId,
-            status:
-              existingDocument.status,
-            chars:
-              existingDocument.text?.length ?? 0,
-            cleanChars:
-              existingDocument.cleanText?.length ?? 0
-          }
-        );
-
-        return {
-          success: true,
-          duplicate: true,
+      log.info(
+        "document.extract.skipped-duplicate",
+        {
+          filePath,
+          fileHash,
           documentId:
             existingDocument.documentId,
-          fileHash,
-          text:
-            existingDocument.text || "",
-          cleanText:
-            existingDocument.cleanText || "",
-          textQuality:
-            existingDocument.textQuality,
-          rawWordCount:
-            existingDocument.rawWordCount,
-          cleanWordCount:
-            existingDocument.cleanWordCount,
-          noiseRatio:
-            existingDocument.noiseRatio,
-          pages:
-            existingDocument.pages || [],
-          jobs: [],
-          totalPages:
-            existingDocument.totalPages,
           status:
-            existingDocument.status || "done"
-        };
-      }
+            existingDocument.status,
+          chars:
+            existingDocument.text?.length ?? 0,
+          cleanChars:
+            existingDocument.cleanText?.length ?? 0
+        }
+      );
+
+      return {
+        success: true,
+        duplicate: true,
+        documentId:
+          existingDocument.documentId,
+        fileHash,
+        text:
+          existingDocument.text || "",
+        cleanText:
+          existingDocument.cleanText || "",
+        textQuality:
+          existingDocument.textQuality,
+        rawWordCount:
+          existingDocument.rawWordCount,
+        cleanWordCount:
+          existingDocument.cleanWordCount,
+        noiseRatio:
+          existingDocument.noiseRatio,
+        pages:
+          existingDocument.pages || [],
+        jobs: [],
+        totalPages:
+          existingDocument.totalPages,
+        status:
+          existingDocument.status || "done"
+      };
     }
 
     const indexed =
@@ -579,7 +572,6 @@ ipcMain.handle(
       );
 
       if (
-        config.ocr.startQueueWhenNoJobs ||
         (document.jobs || []).length > 0
       ) {
         startOcrQueue();

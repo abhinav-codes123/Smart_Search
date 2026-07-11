@@ -144,43 +144,11 @@ Run the Electron app:
 npm run electron
 ```
 
-## Local Configuration
+## OCR Behavior
 
-Runtime settings are loaded from `.env` in the project root. The app also
-supports `.env.local` for local overrides and `SMART_SEARCH_ENV_PATH` if you
-want to point at a different env file.
-
-Start from:
-
-```bash
-cp .env.example .env
-```
-
-Useful OCR knobs:
-
-```bash
-SMART_SEARCH_OCR_MODE=fast
-SMART_SEARCH_OCR_ADAPTIVE_MIN_CONFIDENCE=80
-SMART_SEARCH_OCR_ADAPTIVE_MIN_CHARS=100
-SMART_SEARCH_PDF_RENDER_SCALE=1
-SMART_SEARCH_INITIAL_PDF_SYNC_PAGES=3
-SMART_SEARCH_PDF_OCR_PAGE_LIMIT=0
-SMART_SEARCH_OFFICE_IMAGE_OCR_LIMIT=0
-SMART_SEARCH_SKIP_DUPLICATE_EXTRACTION=true
-SMART_SEARCH_START_QUEUE_WHEN_NO_JOBS=false
-```
-
-The default OCR mode is `fast`: one OCR pass per image, regardless of
-confidence. PDF pages use render scale `1`, which keeps the original rendered
-page resolution. Higher modes/scales are useful for experiments, but they can
-add CPU time without improving handwritten-note search quality.
-
-For higher-cost experiments, try:
-
-```bash
-SMART_SEARCH_OCR_MODE=accurate
-SMART_SEARCH_PDF_RENDER_SCALE=2
-```
+Smart Search uses one local OCR pass per image. PDF pages are rendered at the
+normal page scale before OCR. This keeps indexing predictable and avoids the
+extra CPU cost we saw from repeated OCR passes on handwritten notes.
 
 Build the frontend:
 

@@ -5,8 +5,7 @@ import os from "os";
 import path from "path";
 import { promisify } from "util";
 import {
-  createCanvas,
-  loadImage
+  createCanvas
 } from "@napi-rs/canvas";
 import JSZip from "jszip";
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
@@ -17,9 +16,6 @@ import {
 import {
   buildTextQuality
 } from "./textQuality.js";
-import {
-  config
-} from "./config.js";
 
 const require =
   createRequire(import.meta.url);
@@ -39,14 +35,10 @@ const execFile =
     childProcess.execFile
   );
 
-const PDF_OCR_PAGE_LIMIT =
-  config.ocr.pdfOcrPageLimit;
-const OFFICE_IMAGE_OCR_LIMIT =
-  config.ocr.officeImageOcrLimit;
-const PDF_RENDER_SCALE =
-  config.ocr.pdfRenderScale;
-const INITIAL_PDF_SYNC_PAGES =
-  config.ocr.initialPdfSyncPages;
+const PDF_OCR_PAGE_LIMIT = 0;
+const OFFICE_IMAGE_OCR_LIMIT = 0;
+const PDF_RENDER_SCALE = 1;
+const INITIAL_PDF_SYNC_PAGES = 3;
 
 const PDF_IMAGE_OPS =
   new Set([
@@ -172,33 +164,6 @@ function normalizeWhitespace(text) {
       "\n\n"
     )
     .trim();
-}
-
-function shouldRunEnhancedOcr(rawPass) {
-
-  if (
-    config.ocr.mode === "fast"
-  ) {
-    return false;
-  }
-
-  if (
-    config.ocr.mode === "accurate"
-  ) {
-    return true;
-  }
-
-  const confidence =
-    Number(
-      rawPass.confidence ?? 0
-    );
-
-  return !(
-    rawPass.text.length >=
-      config.ocr.adaptiveMinChars &&
-    confidence >=
-      config.ocr.adaptiveMinConfidence
-  );
 }
 
 function decodeXmlEntities(text) {
@@ -520,92 +485,16 @@ async function extractImageText(filePath) {
     passes.push(rawPass);
   }
 
-  const runEnhanced =
-    shouldRunEnhancedOcr(
-      rawPass
-    );
-
   log.info(
-    "ocr.image.pass-plan",
+    "ocr.image.single-pass",
     {
       filePath,
-      mode:
-        config.ocr.mode,
-      runEnhanced,
       rawChars:
         rawPass.text.length,
       rawConfidence:
-        rawPass.confidence,
-      minChars:
-        config.ocr.adaptiveMinChars,
-      minConfidence:
-        config.ocr.adaptiveMinConfidence
+        rawPass.confidence
     }
   );
-
-  if (runEnhanced) {
-    const softImage =
-      await createEnhancedOcrImage(
-        filePath,
-        "soft"
-      );
-
-    if (softImage) {
-      try {
-        const softPass =
-          await runTesseractPass(
-            "soft",
-            softImage,
-            {
-              tessedit_pageseg_mode:
-                "6"
-            }
-          );
-
-        if (softPass.text) {
-          passes.push(softPass);
-        }
-      } finally {
-        fs.rmSync(
-          softImage,
-          {
-            force: true
-          }
-        );
-      }
-    }
-
-    const thresholdImage =
-      await createEnhancedOcrImage(
-        filePath,
-        "threshold"
-      );
-
-    if (thresholdImage) {
-      try {
-        const thresholdPass =
-          await runTesseractPass(
-            "threshold",
-            thresholdImage,
-            {
-              tessedit_pageseg_mode:
-                "6"
-            }
-          );
-
-        if (thresholdPass.text) {
-          passes.push(thresholdPass);
-        }
-      } finally {
-        fs.rmSync(
-          thresholdImage,
-          {
-            force: true
-          }
-        );
-      }
-    }
-  }
 
   const merged =
     mergeOcrText(
@@ -722,140 +611,6 @@ function mergeOcrText(chunks) {
   return normalizeWhitespace(
     lines.join("\n")
   );
-}
-
-async function createEnhancedOcrImage(
-  filePath,
-  mode
-) {
-
-  let image;
-
-  try {
-    image =
-      await loadImage(filePath);
-  } catch {
-    return null;
-  }
-
-  const scale =
-    Math.max(
-      1,
-      Math.min(
-        3,
-        3200 / image.width
-      )
-    );
-
-  const width =
-    Math.round(
-      image.width * scale
-    );
-  const height =
-    Math.round(
-      image.height * scale
-    );
-
-  const canvas =
-    createCanvas(
-      width,
-      height
-    );
-
-  const context =
-    canvas.getContext("2d");
-
-  context.fillStyle =
-    "white";
-  context.fillRect(
-    0,
-    0,
-    width,
-    height
-  );
-  context.imageSmoothingEnabled =
-    true;
-  context.imageSmoothingQuality =
-    "high";
-  context.drawImage(
-    image,
-    0,
-    0,
-    width,
-    height
-  );
-
-  const imageData =
-    context.getImageData(
-      0,
-      0,
-      width,
-      height
-    );
-
-  const data =
-    imageData.data;
-
-  for (
-    let index = 0;
-    index < data.length;
-    index += 4
-  ) {
-    let gray =
-      0.299 * data[index] +
-      0.587 * data[index + 1] +
-      0.114 * data[index + 2];
-
-    const contrast =
-      mode === "threshold"
-        ? 1.45
-        : 1.25;
-
-    gray =
-      (gray - 128) * contrast + 128;
-
-    if (mode === "threshold") {
-      gray =
-        gray < 170
-          ? 0
-          : 255;
-    } else {
-      gray =
-        Math.max(
-          0,
-          Math.min(
-            255,
-            gray
-          )
-        );
-    }
-
-    data[index] =
-      gray;
-    data[index + 1] =
-      gray;
-    data[index + 2] =
-      gray;
-  }
-
-  context.putImageData(
-    imageData,
-    0,
-    0
-  );
-
-  const enhancedPath =
-    path.join(
-      os.tmpdir(),
-      `smart-search-ocr-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.png`
-    );
-
-  fs.writeFileSync(
-    enhancedPath,
-    await canvas.encode("png")
-  );
-
-  return enhancedPath;
 }
 
 async function renderPdfPageToImage(

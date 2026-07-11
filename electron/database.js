@@ -23,9 +23,6 @@ import {
   generateKeywordTags,
   generateTitleTags
 } from "../src/utils/tagGenerator.js";
-import {
-  config
-} from "./config.js";
 
 const {
   app
@@ -46,13 +43,13 @@ const DATA_DIR =
       );
 
 const JSON_DB_PATH =
-  config.data.jsonDbPath ||
+  process.env.SMART_SEARCH_JSON_DB_PATH ||
   (
-    config.data.dbPath &&
+    process.env.SMART_SEARCH_DB_PATH &&
       path.extname(
-        config.data.dbPath
+        process.env.SMART_SEARCH_DB_PATH
       ) === ".json"
-      ? config.data.dbPath
+      ? process.env.SMART_SEARCH_DB_PATH
       : path.join(
           DATA_DIR,
           "documents.json"
@@ -60,19 +57,19 @@ const JSON_DB_PATH =
   );
 
 const SQLITE_DB_PATH =
-  config.data.sqliteDbPath ||
+  process.env.SMART_SEARCH_SQLITE_DB_PATH ||
   (
-    config.data.dbPath &&
+    process.env.SMART_SEARCH_DB_PATH &&
       [
         ".sqlite",
         ".sqlite3",
         ".db"
       ].includes(
         path.extname(
-          config.data.dbPath
+          process.env.SMART_SEARCH_DB_PATH
         )
       )
-      ? config.data.dbPath
+      ? process.env.SMART_SEARCH_DB_PATH
       : JSON_DB_PATH.replace(
           /\.json$/i,
           ".sqlite"

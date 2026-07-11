@@ -35,7 +35,6 @@ helper.txt
 # Environment files
 .env
 .env.*
-!.env.example
 *.local
 
 # OS files

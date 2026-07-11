@@ -1,62 +1,3 @@
-import {
-  hasPlausibleWordShape,
-  isDictionaryWord,
-  isImportantIdentifier,
-  isOcrNoiseWord,
-  isStopWord
-} from "../src/utils/dictionary.js";
-
-const OCR_CORRECTIONS = [
-  [
-    /^(tusing|tuving|toving|taving|tuning|tsing|trig|tring|tung|tiving|taxing)$/,
-    "turing"
-  ],
-  [
-    /^(maching|moching|macking|mackie|mochine|wachine|wockine|mocking|moche|mache|mockine)$/,
-    "machine"
-  ],
-  [
-    /^(mamory|momewy|wemoy|memoy|memy|wemowy|wemory|wmomewy)$/,
-    "memory"
-  ],
-  [
-    /^(inpud|imput|inpat|inputl|inbut|imped)$/,
-    "input"
-  ],
-  [
-    /^(outpd|oudpd|audpd|ausput|oulpd|ouput|oulput|gulped|solped)$/,
-    "output"
-  ],
-  [
-    /^(tepe|jape|dope|dape)$/,
-    "tape"
-  ],
-  [
-    /^(firite|frite|finile|fihite|firide|fide)$/,
-    "finite"
-  ],
-  [
-    /^(conbvol|corbvol|contvol|corthol|cortvol|conhval)$/,
-    "control"
-  ],
-  [
-    /^(copability|copabili|capabili|capabily|capabisity|cpobility)$/,
-    "capability"
-  ],
-  [
-    /^(conputing|compicting|conpucting|compting|oonplcting)$/,
-    "computing"
-  ],
-  [
-    /^(hadher|fother|fathar)$/,
-    "father"
-  ],
-  [
-    /^(procuce|producee|prodice)$/,
-    "produce"
-  ]
-];
-
 function normalizeWhitespace(text) {
 
   return String(text ?? "")
@@ -67,128 +8,88 @@ function normalizeWhitespace(text) {
     .trim();
 }
 
-function normalizeToken(token) {
+function normalizeSearchLine(line) {
 
-  const lower =
-    token.toLowerCase();
+  return line
+    .normalize("NFKC")
+    .replace(/[“”]/g, "\"")
+    .replace(/[‘’]/g, "'")
+    .replace(/[–—]/g, "-")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .replace(/([([{])\s+/g, "$1")
+    .replace(/\s+([)\]}])/g, "$1")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
 
-  for (
-    const [
-      pattern,
-      replacement
-    ]
-    of OCR_CORRECTIONS
-  ) {
-    if (pattern.test(lower)) {
-      return replacement;
-    }
-  }
+function isSymbolOnlyLine(line) {
 
-  return lower;
+  const compact =
+    line.replace(/\s+/g, "");
+
+  return compact.length >= 3 &&
+    !/[\p{L}\p{N}]/u.test(compact);
+}
+
+function tokenizeForQuality(text) {
+
+  return String(text ?? "")
+    .toLowerCase()
+    .match(/[\p{L}\p{N}][\p{L}\p{N}._+#/-]*/gu) || [];
 }
 
 function isLikelyNoiseToken(token) {
 
   if (
-    isImportantIdentifier(token)
-  ) {
-    return false;
-  }
-
-  if (
-    token.length < 3 ||
-    token.length > 24
+    token.length <= 1 &&
+    !/^\d$/.test(token)
   ) {
     return true;
   }
 
   if (
-    isStopWord(token)
-  ) {
-    return false;
-  }
-
-  if (
-    isOcrNoiseWord(token)
+    token.length > 48
   ) {
     return true;
   }
 
-  if (/^\d+$/.test(token)) {
-    return token.length > 4;
-  }
-
-  if (/^(.)\1{2,}$/.test(token)) {
-    return true;
-  }
-
-  if (/\d/.test(token)) {
-    return true;
-  }
-
   if (
-    isDictionaryWord(token)
-  ) {
-    return false;
-  }
-
-  if (
-    !hasPlausibleWordShape(token)
+    /^(.)\1{4,}$/.test(token)
   ) {
     return true;
   }
 
-  return false;
-}
-
-function cleanLine(line) {
-
-  const tokens =
-    line
-      .replace(/[^\p{L}\p{N}]+/gu, " ")
-      .split(/\s+/)
-      .filter(Boolean)
-      .map(normalizeToken);
-
-  const useful =
-    tokens.filter(token =>
-      !isLikelyNoiseToken(token) ||
-      isStopWord(token)
-    );
+  const letters =
+    (token.match(/\p{L}/gu) || []).length;
+  const digits =
+    (token.match(/\p{N}/gu) || []).length;
 
   if (
-    tokens.length >= 4 &&
-    useful.length / tokens.length < 0.35
+    letters === 0 &&
+    digits === 0
   ) {
-    return "";
+    return true;
   }
 
-  return useful.join(" ");
+  const punctuation =
+    token.length - letters - digits;
+
+  return token.length >= 8 &&
+    punctuation / token.length > 0.45;
 }
 
 export function analyzeTextQuality(text) {
 
-  const normalized =
-    normalizeWhitespace(text);
-
   const tokens =
-    normalized
-      .toLowerCase()
-      .replace(/[^\p{L}\p{N}]+/gu, " ")
-      .split(/\s+/)
-      .filter(Boolean)
-      .map(normalizeToken);
-
-  const wordTokens =
-    tokens.filter(token =>
-      /[a-z]/.test(token)
+    tokenizeForQuality(
+      normalizeWhitespace(text)
     );
 
-  const noiseTokens =
-    wordTokens.filter(isLikelyNoiseToken);
-
   const wordCount =
-    wordTokens.length;
+    tokens.length;
+
+  const noiseTokens =
+    tokens.filter(isLikelyNoiseToken);
 
   const noiseRatio =
     wordCount === 0
@@ -225,11 +126,11 @@ export function cleanExtractedText(text) {
   const lines =
     normalized
       .split("\n")
-      .map(cleanLine)
-      .map(line =>
-        normalizeWhitespace(line)
-      )
+      .map(normalizeSearchLine)
       .filter(Boolean)
+      .filter(line =>
+        !isSymbolOnlyLine(line)
+      )
       .filter(line => {
         const key =
           line.toLowerCase();
@@ -258,13 +159,13 @@ export function buildTextQuality(text) {
 
   return {
     cleanText,
+    quality:
+      cleanAnalysis.quality,
     rawWordCount:
       analysis.wordCount,
     cleanWordCount:
       cleanAnalysis.wordCount,
     noiseRatio:
-      analysis.noiseRatio,
-    quality:
-      cleanAnalysis.quality
+      cleanAnalysis.noiseRatio
   };
 }

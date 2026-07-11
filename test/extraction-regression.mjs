@@ -614,19 +614,15 @@ try {
 
   assert.match(
     cleanNoisyText,
-    /turing/
+    /Tusing/
   );
   assert.match(
     cleanNoisyText,
-    /machine/
+    /wockine/
   );
   assert.match(
     cleanNoisyText,
-    /output/
-  );
-  assert.doesNotMatch(
-    cleanNoisyText,
-    /\bwockine\b/
+    /outpd/
   );
   assert.ok(
     buildTextQuality(noisyOcrText).cleanWordCount > 0
@@ -742,7 +738,13 @@ try {
   );
   assert.match(
     cleanExtractedText(identifierText),
-    /\bbcs303\b/
+    /\bBCS303\b/
+  );
+  assert.match(
+    cleanExtractedText(
+      "CPU cache memory stdio.h ctype.h t-test n < 30"
+    ),
+    /CPU cache memory stdio\.h ctype\.h t-test n < 30/
   );
   console.log("PASS OCR-safe tag generation");
 

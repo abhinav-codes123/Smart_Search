@@ -23,6 +23,22 @@ ipcRenderer.on(
 contextBridge.exposeInMainWorld(
   "electronAPI",
   {
+    onSmartSearchLog: (callback) => {
+      const listener = (_, entry) =>
+        callback(entry);
+
+      ipcRenderer.on(
+        "smart-search-log",
+        listener
+      );
+
+      return () =>
+        ipcRenderer.removeListener(
+          "smart-search-log",
+          listener
+        );
+    },
+
     selectFolder: () =>
       ipcRenderer.invoke(
         "select-folder"
@@ -85,6 +101,13 @@ contextBridge.exposeInMainWorld(
       (filePath) =>
         ipcRenderer.invoke(
           "open-file",
+          filePath
+        ),
+
+    revealFile:
+      (filePath) =>
+        ipcRenderer.invoke(
+          "reveal-file",
           filePath
         ),
   }

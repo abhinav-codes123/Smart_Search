@@ -1,104 +1,253 @@
-import { useEffect , useState } from "react";
-import {  classifyDocument } from "./utils/classifier";
-import { scanFiles } from "./utils/scanner";
-import "./App.css"
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState
+} from "react";
+import { classifyDocument } from "./utils/classifier";
+import { extractMetadata } from "./utils/extractMetadata";
+import {
+  generateKeywordTags,
+  generateTitleTags
+} from "./utils/tagGenerator";
+import "./App.css";
 
-function App() {
-  const [scannedFiles,setScannedFiles] = useState([]);
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState([]);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [recentSearches, setRecentSearches] = useState([]);
-  const [viewMode,setViewMode] = useState("grid");
+const TYPE_OPTIONS = [
+  "all",
+  "pdf",
+  "image",
+  "office",
+  "code",
+  "text"
+];
 
-  const handleFolderSelect =
-    async () => {
-      setUploadProgress(0);
-      let processed = 0;
+const STATUS_OPTIONS = [
+  "all",
+  "done",
+  "indexing",
+  "failed"
+];
 
-  const result =
-    await window
-      .electronAPI
-      .selectFolder();
+const SEARCH_EXAMPLES = [
+  "t-test",
+  "BCS303",
+  "banker algorithm",
+  "CPU cache",
+  "stdio.h"
+];
+
+function getExtension(filePath = "") {
+  const match =
+    filePath
+      .toLowerCase()
+      .match(/\.[^.]+$/);
+
+  return match?.[0] || "";
+}
+
+function getFileType(filePath = "") {
+  const extension =
+    getExtension(filePath);
+
+  if (extension === ".pdf")
+    return "pdf";
 
   if (
-    !result?.files?.length
+    [
+      ".png",
+      ".jpg",
+      ".jpeg",
+      ".webp",
+      ".bmp",
+      ".gif",
+      ".tif",
+      ".tiff"
+    ].includes(extension)
   )
-    return;
+    return "image";
 
-  const totalFiles = result.files.length;
+  if (
+    [
+      ".doc",
+      ".docx",
+      ".pptx",
+      ".xlsx",
+      ".odt",
+      ".odp",
+      ".ods"
+    ].includes(extension)
+  )
+    return "office";
 
-  const results =
-    await scanFiles(
-      result.files,
-      window.electronAPI.extractDocumentText,
-      classifyDocument,
-      progress =>
-        setUploadProgress(
-          progress
-        )
-    );
+  if (
+    [
+      ".js",
+      ".jsx",
+      ".ts",
+      ".tsx",
+      ".py",
+      ".java",
+      ".c",
+      ".cpp",
+      ".h",
+      ".hpp",
+      ".cs",
+      ".go",
+      ".rs",
+      ".php",
+      ".rb",
+      ".swift",
+      ".kt",
+      ".sql",
+      ".css",
+      ".html"
+    ].includes(extension)
+  )
+    return "code";
 
-  for (
-    const document
-    of results
-  ) {
+  return "text";
+}
 
-    await window
-      .electronAPI
-      .saveDocument(
-        document
-      );
+function getQualityLabel(doc) {
+  const quality =
+    Number(doc?.textQuality ?? 0);
 
-    processed++;
-    setUploadProgress(
-      Math.round(
-        (processed /
-          totalFiles) *
-          100
-      )
-    );
-  }
-  setUploadProgress(100);
-  setScannedFiles(
-    results
+  if (
+    doc?.status === "indexing"
+  )
+    return "Partial";
+
+  if (quality >= 85)
+    return "Good";
+
+  if (quality >= 65)
+    return "Review";
+
+  return "Low OCR";
+}
+
+function getQualityClass(doc) {
+  const label =
+    getQualityLabel(doc);
+
+  return label
+    .toLowerCase()
+    .replace(/\s+/g, "-");
+}
+
+function getQueueTotal(queueStatus) {
+  return Object.values(
+    queueStatus || {}
+  ).reduce(
+    (sum, value) =>
+      sum + Number(value || 0),
+    0
   );
-};
+}
 
-function ImageThumbnail({
-  path
-}) {
+function compactPath(filePath = "") {
+  const parts =
+    filePath.split("/");
 
+  if (parts.length <= 4)
+    return filePath;
+
+  return [
+    parts[0],
+    "...",
+    ...parts.slice(-3)
+  ].join("/");
+}
+
+function buildDocumentFromExtraction(file, result) {
+  const text =
+    result.text || "";
+  const cleanText =
+    result.cleanText ||
+    text;
+
+  return {
+    documentId:
+      result.documentId,
+    fileHash:
+      result.fileHash,
+    filePath:
+      file.path,
+    fileName:
+      file.name,
+    titleTags:
+      generateTitleTags(
+        cleanText
+      ),
+    keywordTags:
+      generateKeywordTags(
+        cleanText
+      ),
+    category:
+      classifyDocument(
+        cleanText
+      ),
+    metadata:
+      extractMetadata(
+        cleanText
+      ),
+    text,
+    cleanText,
+    textQuality:
+      result.textQuality,
+    rawWordCount:
+      result.rawWordCount,
+    cleanWordCount:
+      result.cleanWordCount,
+    noiseRatio:
+      result.noiseRatio,
+    pages:
+      result.pages || [],
+    jobs:
+      result.jobs || [],
+    totalPages:
+      result.totalPages ?? null,
+    status:
+      result.status || "done",
+    duplicate:
+      Boolean(result.duplicate),
+    scannedAt:
+      new Date().toISOString()
+  };
+}
+
+function ImageThumbnail({ path }) {
   const [
     imageSrc,
     setImageSrc
   ] = useState(null);
 
   useEffect(() => {
+    let cancelled = false;
 
     async function load() {
-
       const data =
         await window
           .electronAPI
           .getImageData(path);
 
-      setImageSrc(data);
+      if (!cancelled) {
+        setImageSrc(data);
+      }
     }
 
     load();
 
+    return () => {
+      cancelled = true;
+    };
   }, [path]);
 
   if (!imageSrc) {
     return (
-      <div
-        style={{
-          width: "100px",
-          height: "100px",
-          background: "#222"
-        }}
-      />
+      <div className="thumb-placeholder">
+        IMG
+      </div>
     );
   }
 
@@ -106,369 +255,944 @@ function ImageThumbnail({
     <img
       src={imageSrc}
       alt=""
-      style={{
-        width: "100px",
-        height: "100px",
-        objectFit: "cover",
-        borderRadius: "8px"
-      }}
     />
   );
 }
 
-const search =
-  async () => {
+function FileThumb({ doc }) {
+  const type =
+    getFileType(doc.filePath);
+
+  if (type === "image") {
+    return (
+      <ImageThumbnail
+        path={doc.filePath}
+      />
+    );
+  }
+
+  return (
+    <div className={`file-icon type-${type}`}>
+      {type.toUpperCase()}
+    </div>
+  );
+}
+
+function App() {
+  const [
+    documents,
+    setDocuments
+  ] = useState([]);
+  const [
+    results,
+    setResults
+  ] = useState([]);
+  const [
+    query,
+    setQuery
+  ] = useState("");
+  const [
+    recentSearches,
+    setRecentSearches
+  ] = useState([]);
+  const [
+    viewMode,
+    setViewMode
+  ] = useState("list");
+  const [
+    typeFilter,
+    setTypeFilter
+  ] = useState("all");
+  const [
+    statusFilter,
+    setStatusFilter
+  ] = useState("all");
+  const [
+    categoryFilter,
+    setCategoryFilter
+  ] = useState("all");
+  const [
+    selectedDoc,
+    setSelectedDoc
+  ] = useState(null);
+  const [
+    uploadProgress,
+    setUploadProgress
+  ] = useState(0);
+  const [
+    isProcessing,
+    setIsProcessing
+  ] = useState(false);
+  const [
+    activity,
+    setActivity
+  ] = useState([]);
+  const [
+    currentTask,
+    setCurrentTask
+  ] = useState("Idle");
+  const [
+    queueStatus,
+    setQueueStatus
+  ] = useState({});
+  const [
+    searchState,
+    setSearchState
+  ] = useState("idle");
+
+  const categoryOptions =
+    useMemo(
+      () => [
+        "all",
+        ...new Set(
+          documents
+            .map(doc => doc.category)
+            .filter(Boolean)
+        )
+      ],
+      [documents]
+    );
+
+  const visibleResults =
+    useMemo(
+      () =>
+        results.filter(doc => {
+          if (
+            typeFilter !== "all" &&
+            getFileType(doc.filePath) !== typeFilter
+          )
+            return false;
+
+          if (
+            statusFilter !== "all" &&
+            (doc.status || "done") !== statusFilter
+          )
+            return false;
+
+          if (
+            categoryFilter !== "all" &&
+            doc.category !== categoryFilter
+          )
+            return false;
+
+          return true;
+        }),
+      [
+        results,
+        typeFilter,
+        statusFilter,
+        categoryFilter
+      ]
+    );
+
+  function addActivity(event) {
+    setActivity(prev => [
+      {
+        id:
+          `${Date.now()}-${Math.random()}`,
+        time:
+          new Date().toLocaleTimeString(),
+        ...event
+      },
+      ...prev
+    ].slice(0, 60));
+  }
+
+  async function refreshDocuments() {
+    const docs =
+      await window
+        .electronAPI
+        .getDocuments();
+
+    setDocuments(docs);
+
+    if (!query.trim()) {
+      setResults(docs);
+    }
+
+    return docs;
+  }
+
+  const refreshQueue =
+    useCallback(async () => {
+    const status =
+      await window
+        .electronAPI
+        .getOcrQueueStatus();
+
+    setQueueStatus(status || {});
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadInitialState() {
+      const [
+        docs,
+        status
+      ] =
+        await Promise.all([
+          window.electronAPI.getDocuments(),
+          window.electronAPI.getOcrQueueStatus()
+        ]);
+
+      if (cancelled) {
+        return;
+      }
+
+      setDocuments(docs);
+      setResults(docs);
+      setQueueStatus(status || {});
+    }
+
+    loadInitialState();
+
+    const interval =
+      window.setInterval(
+        refreshQueue,
+        3000
+      );
+
+    const unsubscribe =
+      window
+        .electronAPI
+        .onSmartSearchLog?.(entry => {
+          if (
+            [
+              "document.extract.skipped-duplicate",
+              "database.document.duplicate-hit",
+              "document.extract.failed",
+              "database.job.queued",
+              "ocr.job.failed",
+              "ocr.job.completed"
+            ].includes(entry.event)
+          ) {
+            addActivity({
+              level:
+                entry.level,
+              title:
+                entry.event,
+              detail:
+                entry.details?.filePath ||
+                entry.details?.documentId ||
+                entry.details?.error ||
+                ""
+            });
+          }
+        });
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
+  }, [refreshQueue]);
+
+  async function processFiles(files) {
+    if (!files.length)
+      return;
+
+    setIsProcessing(true);
+    setUploadProgress(0);
+    setCurrentTask("Preparing files");
+    addActivity({
+      level: "info",
+      title: "Indexing started",
+      detail: `${files.length} file${files.length === 1 ? "" : "s"} selected`
+    });
+
+    const processedDocs = [];
+
+    for (let index = 0; index < files.length; index++) {
+      const file =
+        files[index];
+
+      setCurrentTask(
+        `Extracting ${file.name}`
+      );
+      addActivity({
+        level: "info",
+        title: "Extracting",
+        detail:
+          file.name
+      });
+
+      try {
+        const result =
+          await window
+            .electronAPI
+            .extractDocumentText(
+              file.path
+            );
+
+        if (!result.success) {
+          addActivity({
+            level: "error",
+            title: "Extraction failed",
+            detail:
+              `${file.name}: ${result.error}`
+          });
+          continue;
+        }
+
+        if (result.duplicate) {
+          addActivity({
+            level: "info",
+            title: "Duplicate reused",
+            detail:
+              file.name
+          });
+        }
+
+        const document =
+          buildDocumentFromExtraction(
+            file,
+            result
+          );
+
+        setCurrentTask(
+          `Saving ${file.name}`
+        );
+
+        const saved =
+          await window
+            .electronAPI
+            .saveDocument(
+              document
+            );
+
+        processedDocs.push(
+          saved?.success === false
+            ? document
+            : {
+                ...document,
+                ...(saved || {})
+              }
+        );
+
+        addActivity({
+          level: "info",
+          title:
+            document.jobs.length > 0
+              ? "Queued background pages"
+              : "Indexed",
+          detail:
+            document.jobs.length > 0
+              ? `${file.name}: ${document.jobs.length} page jobs`
+              : file.name
+        });
+      } catch (error) {
+        addActivity({
+          level: "error",
+          title: "Upload failed",
+          detail:
+            `${file.name}: ${error.message}`
+        });
+      } finally {
+        setUploadProgress(
+          Math.round(
+            ((index + 1) / files.length) * 100
+          )
+        );
+        await refreshQueue();
+      }
+    }
+
+    setCurrentTask("Refreshing library");
+    const docs =
+      await refreshDocuments();
+    setResults(
+      query.trim()
+        ? results
+        : docs
+    );
+    setIsProcessing(false);
+    setCurrentTask("Idle");
+    addActivity({
+      level: "info",
+      title: "Indexing finished",
+      detail:
+        `${processedDocs.length} file${processedDocs.length === 1 ? "" : "s"} saved`
+    });
+  }
+
+  async function handleFolderSelect() {
+    const result =
+      await window
+        .electronAPI
+        .selectFolder();
+
+    await processFiles(
+      result?.files || []
+    );
+  }
+
+  async function handleFileSelect() {
+    const files =
+      await window
+        .electronAPI
+        .selectFiles();
+
+    await processFiles(files || []);
+  }
+
+  async function runSearch(nextQuery = query) {
+    const trimmed =
+      nextQuery.trim();
+
+    setSearchState("searching");
+
+    if (!trimmed) {
+      const docs =
+        await refreshDocuments();
+
+      setResults(docs);
+      setSearchState("idle");
+      return;
+    }
 
     const docs =
       await window
         .electronAPI
         .searchDocuments(
-          query
+          trimmed
         );
 
-    console.log(docs);
-
-    setResults(
-  docs
-);
-
-if (
-  query.trim()
-) {
-
-  setRecentSearches(
-    prev => [
-
-      query,
-
+    setResults(docs);
+    setSearchState("idle");
+    setRecentSearches(prev => [
+      trimmed,
       ...prev.filter(
         item =>
-          item !== query
+          item !== trimmed
       )
-
-    ].slice(0, 5)
-  );
-}
-};
-
-const handleFileSelect =
-async () => {
-
-  const files =
-    await window
-      .electronAPI
-      .selectFiles();
-
-  if (!files.length)
-    return;
-
-  const results =
-    await scanFiles(
-      files,
-      window.electronAPI.extractDocumentText,
-      classifyDocument,
-      progress =>
-        setUploadProgress(
-          progress
-        )
-    );
-
-  for (
-    const document
-    of results
-  ) {
-
-    await window
-      .electronAPI
-      .saveDocument(
-        document
-      );
+    ].slice(0, 6));
   }
 
-  setScannedFiles(
-    results
-  );
-};
+  function applyRecentSearch(item) {
+    setQuery(item);
+    runSearch(item);
+  }
+
+  const queueTotal =
+    getQueueTotal(queueStatus);
+
+  const selectedText =
+    selectedDoc?.cleanText ||
+    selectedDoc?.text ||
+    "";
 
   return (
-  <div className="app">
+    <div className="app-shell">
+      <header className="topbar">
+        <div>
+          <p className="eyebrow">
+            Local file intelligence
+          </p>
+          <h1>
+            Smart File Organiser
+          </h1>
+          <p className="subtitle">
+            Search messy folders by content, OCR text, tags, and document context.
+          </p>
+        </div>
 
-    <h1 className="title">
-      Smart Search
-    </h1>
+        <div className="topbar-actions">
+          <button
+            className="btn btn-secondary"
+            onClick={handleFolderSelect}
+            disabled={isProcessing}
+          >
+            Upload Folder
+          </button>
+          <button
+            className="btn btn-primary"
+            onClick={handleFileSelect}
+            disabled={isProcessing}
+          >
+            Upload Files
+          </button>
+        </div>
+      </header>
 
-    <p className="subtitle">
-  Search anything inside PDFs,
-  Images and Documents instantly.
-</p>
-
-    <div className="section">
-
-      <h2 className="section-title">
-        Upload & Processing
-      </h2>
-
-      <div className="btn-row">
-
-        <button
-          onClick={handleFolderSelect}
-          className="btn btn-primary"
-        >
-          Upload Folder
-        </button>
-
-        <button
-          onClick={handleFileSelect}
-          className="btn btn-secondary"
-        >
-          Upload Files
-        </button>
-
-      </div>
-
-      <div className="progress">
-
-        <div
-          className="progress-bar"
-          style={{
-            width: `${uploadProgress}%`
-          }}
-        />
-
-      </div>
-
-      <div
-        style={{
-          marginTop: "20px"
-        }}
-      >
-        <h3 style={{
-          color:"aliceblue"
-        }}>
-          Recent Uploads
-        </h3>
-
-        {
-          scannedFiles
-            .slice(-4)
-            .reverse()
-            .map(file => (
-
-              <div
-                key={file.filePath}
-                style={{
-                  marginTop: "8px",
-                  color: "#9ca3af"
-                }}
-              >
-                ✓ {file.fileName}
-              </div>
-
-            ))
-        }
-      </div>
-
-    </div>
-
-    <div className="search-row">
-
-      <input
-        value={query}
-        onChange={(e) =>
-          setQuery(
-            e.target.value
-          )
-        }
-        placeholder="Search files..."
-        className="search-input"
-      />
-
-      <button
-        onClick={search}
-        className="btn btn-primary"
-      >
-        Search
-      </button>
-
-    </div>
-
-    <div className="chips">
-
-      {
-        recentSearches.map(
-          item => (
-
-            <div
-              key={item}
-              className="chip"
-            >
-              {item}
+      <main className="layout">
+        <aside className="side-panel">
+          <section className="panel-section">
+            <div className="panel-heading">
+              <h2>
+                Indexing
+              </h2>
+              <span className={`status-dot ${isProcessing ? "active" : ""}`} />
             </div>
 
-          )
-        )
-      }
+            <p className="task-text">
+              {currentTask}
+            </p>
 
-    </div>
+            <div className="progress">
+              <div
+                className="progress-bar"
+                style={{
+                  width:
+                    `${uploadProgress}%`
+                }}
+              />
+            </div>
 
-    <div className="results-header">
+            <div className="progress-meta">
+              <span>
+                {uploadProgress}%
+              </span>
+              <span>
+                {documents.length} indexed
+              </span>
+            </div>
+          </section>
 
-      <h2>
-        Results
-      </h2>
+          <section className="panel-section">
+            <div className="panel-heading">
+              <h2>
+                Background Queue
+              </h2>
+              <span>
+                {queueTotal} jobs
+              </span>
+            </div>
 
-      <div
-        style={{
-          display: "flex",
-          gap: "10px"
-        }}
-      >
-
-        <button
-          onClick={() =>
-            setViewMode(
-              "grid"
-            )
-          }
-          className={
-            viewMode === "grid"
-              ? "btn btn-primary"
-              : "btn btn-secondary"
-          }
-        >
-          Grid
-        </button>
-
-        <button
-          onClick={() =>
-            setViewMode(
-              "list"
-            )
-          }
-          className={
-            viewMode === "list"
-              ? "btn btn-primary"
-              : "btn btn-secondary"
-          }
-        >
-          List
-        </button>
-
-      </div>
-
-    </div>
-
-    {
-      viewMode === "grid"
-      ? (
-
-        <div className="grid-view">
-
-          {
-            results.map(
-              doc => (
-
-                <div
-                  key={
-                    doc.filePath
-                  }
-                  className="card"
-                  onClick={() =>
-                    window
-                      .electronAPI
-                      .openFile(
-                        doc.filePath
-                      )
-                  }
-                >
-
-                  <div className="thumbnail">
-
-                    {
-                      doc.filePath?.match(
-                        /\.(png|jpg|jpeg)$/i
-                      )
-                      ? (
-                        <ImageThumbnail
-                          path={
-                            doc.filePath
-                          }
-                        />
-                      )
-                      : (
-                        <div
-                          style={{
-                            fontSize:
-                              "60px"
-                          }}
-                        >
-                          📄
-                        </div>
-                      )
-                    }
-
+            <div className="queue-grid">
+              {
+                [
+                  "pending",
+                  "processing",
+                  "done",
+                  "failed"
+                ].map(status => (
+                  <div
+                    key={status}
+                    className="queue-cell"
+                  >
+                    <strong>
+                      {queueStatus[status] || 0}
+                    </strong>
+                    <span>
+                      {status}
+                    </span>
                   </div>
+                ))
+              }
+            </div>
+          </section>
 
-                  <h3 className="file-name">
-                    {doc.fileName}
-                  </h3>
+          <section className="panel-section activity-section">
+            <div className="panel-heading">
+              <h2>
+                Activity
+              </h2>
+            </div>
 
-                  <p className="preview">
-                    {doc.preview}
-                  </p>
+            <div className="activity-list">
+              {
+                activity.length === 0
+                  ? (
+                      <p className="empty-text">
+                        Upload files to see extraction, duplicate, and queue events here.
+                      </p>
+                    )
+                  : activity.map(item => (
+                      <div
+                        key={item.id}
+                        className={`activity-item ${item.level}`}
+                      >
+                        <div>
+                          <strong>
+                            {item.title}
+                          </strong>
+                          <p>
+                            {item.detail}
+                          </p>
+                        </div>
+                        <span>
+                          {item.time}
+                        </span>
+                      </div>
+                    ))
+              }
+            </div>
+          </section>
+        </aside>
 
-                </div>
+        <section className="workspace">
+          <section className="search-panel">
+            <div className="search-row">
+              <input
+                value={query}
+                onChange={event =>
+                  setQuery(
+                    event.target.value
+                  )
+                }
+                onKeyDown={event => {
+                  if (event.key === "Enter") {
+                    runSearch();
+                  }
+                }}
+                placeholder="Search: t-test, BCS303, banker algorithm, CPU cache"
+                className="search-input"
+              />
 
-              )
-            )
-          }
+              {
+                query && (
+                  <button
+                    className="btn btn-secondary icon-btn"
+                    onClick={() => {
+                      setQuery("");
+                      runSearch("");
+                    }}
+                    aria-label="Clear search"
+                  >
+                    Clear
+                  </button>
+                )
+              }
 
-        </div>
+              <button
+                onClick={() =>
+                  runSearch()
+                }
+                className="btn btn-primary"
+              >
+                {searchState === "searching" ? "Searching" : "Search"}
+              </button>
+            </div>
 
-      )
-      : (
+            <div className="chips">
+              {
+                (recentSearches.length
+                  ? recentSearches
+                  : SEARCH_EXAMPLES
+                ).map(item => (
+                  <button
+                    key={item}
+                    className="chip"
+                    onClick={() =>
+                      applyRecentSearch(item)
+                    }
+                  >
+                    {item}
+                  </button>
+                ))
+              }
+            </div>
+          </section>
 
-        <div className="list-view">
+          <section className="filters">
+            <label>
+              Type
+              <select
+                value={typeFilter}
+                onChange={event =>
+                  setTypeFilter(event.target.value)
+                }
+              >
+                {
+                  TYPE_OPTIONS.map(option => (
+                    <option
+                      key={option}
+                      value={option}
+                    >
+                      {option}
+                    </option>
+                  ))
+                }
+              </select>
+            </label>
+
+            <label>
+              Status
+              <select
+                value={statusFilter}
+                onChange={event =>
+                  setStatusFilter(event.target.value)
+                }
+              >
+                {
+                  STATUS_OPTIONS.map(option => (
+                    <option
+                      key={option}
+                      value={option}
+                    >
+                      {option}
+                    </option>
+                  ))
+                }
+              </select>
+            </label>
+
+            <label>
+              Category
+              <select
+                value={categoryFilter}
+                onChange={event =>
+                  setCategoryFilter(event.target.value)
+                }
+              >
+                {
+                  categoryOptions.map(option => (
+                    <option
+                      key={option}
+                      value={option}
+                    >
+                      {option}
+                    </option>
+                  ))
+                }
+              </select>
+            </label>
+
+            <div className="view-toggle">
+              <button
+                className={viewMode === "list" ? "active" : ""}
+                onClick={() =>
+                  setViewMode("list")
+                }
+              >
+                List
+              </button>
+              <button
+                className={viewMode === "grid" ? "active" : ""}
+                onClick={() =>
+                  setViewMode("grid")
+                }
+              >
+                Grid
+              </button>
+            </div>
+          </section>
+
+          <section className="results-header">
+            <div>
+              <h2>
+                Results
+              </h2>
+              <p>
+                {visibleResults.length} shown from {results.length || documents.length} indexed files
+              </p>
+            </div>
+          </section>
 
           {
-            results.map(
-              doc => (
+            visibleResults.length === 0
+              ? (
+                  <div className="empty-state">
+                    <h3>
+                      No matching files yet
+                    </h3>
+                    <p>
+                      Try a broader topic, an exact code like BCS303, or upload a folder to build the local index.
+                    </p>
+                  </div>
+                )
+              : (
+                  <div className={viewMode === "grid" ? "grid-view" : "list-view"}>
+                    {
+                      visibleResults.map(doc => (
+                        <article
+                          key={`${doc.documentId || doc.filePath}-${doc.filePath}`}
+                          className={`result-card ${viewMode}`}
+                          onClick={() =>
+                            setSelectedDoc(doc)
+                          }
+                        >
+                          <div className="result-thumb">
+                            <FileThumb doc={doc} />
+                          </div>
 
-                <div
-                  key={
-                    doc.filePath
+                          <div className="result-body">
+                            <div className="result-title-row">
+                              <h3>
+                                {doc.fileName}
+                              </h3>
+                              <span className={`quality-pill ${getQualityClass(doc)}`}>
+                                {getQualityLabel(doc)}
+                              </span>
+                            </div>
+
+                            <p className="path-text">
+                              {compactPath(doc.filePath)}
+                            </p>
+
+                            <p className="preview">
+                              {doc.preview || doc.cleanText?.slice(0, 220) || "No preview available"}
+                            </p>
+
+                            <div className="tag-row">
+                              {
+                                (doc.keywordTags || [])
+                                  .slice(0, 5)
+                                  .map(tag => (
+                                    <span key={tag}>
+                                      {tag}
+                                    </span>
+                                  ))
+                              }
+                            </div>
+
+                            <div className="meta-row">
+                              <span>
+                                {getFileType(doc.filePath)}
+                              </span>
+                              <span>
+                                {doc.category || "Unknown"}
+                              </span>
+                              <span>
+                                {doc.totalPages ? `${doc.indexedPages || doc.pages?.length || 0}/${doc.totalPages} pages` : "single item"}
+                              </span>
+                              {
+                                doc.score != null && (
+                                  <span>
+                                    score {doc.score}
+                                  </span>
+                                )
+                              }
+                            </div>
+                          </div>
+                        </article>
+                      ))
+                    }
+                  </div>
+                )
+          }
+        </section>
+
+        {
+          selectedDoc && (
+            <aside className="detail-panel">
+              <div className="detail-header">
+                <div>
+                  <p className="eyebrow">
+                    Document detail
+                  </p>
+                  <h2>
+                    {selectedDoc.fileName}
+                  </h2>
+                </div>
+                <button
+                  className="close-btn"
+                  onClick={() =>
+                    setSelectedDoc(null)
                   }
-                  className="card"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="detail-actions">
+                <button
+                  className="btn btn-primary"
                   onClick={() =>
                     window
                       .electronAPI
-                      .openFile(
-                        doc.filePath
-                      )
+                      .openFile(selectedDoc.filePath)
                   }
                 >
+                  Open File
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() =>
+                    window
+                      .electronAPI
+                      .revealFile(selectedDoc.filePath)
+                  }
+                >
+                  Reveal
+                </button>
+              </div>
 
-                  <h3 className="file-name">
-                    {doc.fileName}
-                  </h3>
-
-                  <p className="preview">
-                    {doc.preview}
-                  </p>
-
+              <div className="detail-stats">
+                <div>
+                  <strong>
+                    {getQualityLabel(selectedDoc)}
+                  </strong>
+                  <span>
+                    OCR quality
+                  </span>
                 </div>
+                <div>
+                  <strong>
+                    {selectedDoc.cleanWordCount || 0}
+                  </strong>
+                  <span>
+                    words
+                  </span>
+                </div>
+                <div>
+                  <strong>
+                    {selectedDoc.status || "done"}
+                  </strong>
+                  <span>
+                    status
+                  </span>
+                </div>
+              </div>
 
-              )
-            )
-          }
+              <section className="detail-section">
+                <h3>
+                  Suggested Category
+                </h3>
+                <p className="category-box">
+                  {selectedDoc.category || "Unknown"}
+                </p>
+                <p className="muted">
+                  Reason: matched tags like {(selectedDoc.keywordTags || []).slice(0, 5).join(", ") || "document content"}.
+                </p>
+              </section>
 
-        </div>
+              <section className="detail-section">
+                <h3>
+                  Tags
+                </h3>
+                <div className="tag-row">
+                  {
+                    [
+                      ...(selectedDoc.titleTags || []),
+                      ...(selectedDoc.keywordTags || [])
+                    ]
+                      .slice(0, 18)
+                      .map(tag => (
+                        <span key={tag}>
+                          {tag}
+                        </span>
+                      ))
+                  }
+                </div>
+              </section>
 
-      )
-    }
+              {
+                getQualityLabel(selectedDoc) === "Low OCR" && (
+                  <section className="warning-box">
+                    OCR quality may be low. Topic keywords may work better than exact handwritten sentences.
+                  </section>
+                )
+              }
 
-  </div>
-);
+              <section className="detail-section">
+                <h3>
+                  Extracted Text
+                </h3>
+                <pre className="text-preview">
+                  {selectedText || "No extracted text stored yet."}
+                </pre>
+              </section>
+            </aside>
+          )
+        }
+      </main>
+    </div>
+  );
 }
 
 export default App;

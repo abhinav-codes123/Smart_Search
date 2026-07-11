@@ -655,6 +655,18 @@ ipcMain.handle(
 );
 
 ipcMain.handle(
+  "reveal-file",
+  async (_, filePath) => {
+
+    shell.showItemInFolder(
+      filePath
+    );
+
+    return true;
+  }
+);
+
+ipcMain.handle(
   "select-files",
   async () => {
 

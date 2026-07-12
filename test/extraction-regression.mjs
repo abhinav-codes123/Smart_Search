@@ -777,6 +777,21 @@ try {
       "Certificate of completion awarded for blockchain smart contract workshop",
       "certificates",
       "blockchain"
+    ],
+    [
+      "Student report card class 8 section A marks grade outstanding teacher term mathematics",
+      "student-records",
+      "student-records"
+    ],
+    [
+      "Patient prescription tablet dosage dose route duration meals daily hemoglobin medicine",
+      "medical",
+      "medical"
+    ],
+    [
+      "TechSolutions client proposal module description address business development invoice",
+      "business-documents",
+      "business-documents"
     ]
   ];
 
@@ -829,12 +844,60 @@ try {
     reviewOrganization.needsReview,
     true
   );
+  assert.equal(
+    reviewOrganization.primaryFolderId,
+    "review-needed"
+  );
   assert.ok(
     getDocumentFolderIds({
       organization:
         reviewOrganization
     }).includes(
       "review-needed"
+    )
+  );
+
+  const strongLowQualityOrganization =
+    suggestOrganization({
+      fileName:
+        "stats-photo.png",
+      cleanText:
+        "Statistics sampling theory t-test test of significance population mean sample mean",
+      textQuality:
+        24,
+      cleanWordCount:
+        9
+    });
+
+  assert.equal(
+    strongLowQualityOrganization.primaryFolderId,
+    "math-statistics"
+  );
+  assert.equal(
+    strongLowQualityOrganization.needsReview,
+    false
+  );
+
+  const weakImageOrganization =
+    suggestOrganization({
+      fileName:
+        "unknown-image.png",
+      cleanText:
+        "",
+      textQuality:
+        100,
+      cleanWordCount:
+        0
+    });
+
+  assert.equal(
+    weakImageOrganization.primaryFolderId,
+    "review-needed"
+  );
+  assert.ok(
+    weakImageOrganization.alternatives.some(
+      alternative =>
+        alternative.folderId === "images"
     )
   );
   console.log("PASS virtual organiser rules");

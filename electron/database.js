@@ -2848,6 +2848,46 @@ export function getDocumentByFileHash(fileHash) {
   );
 }
 
+export function refreshAllDocumentOrganizations() {
+
+  const database =
+    getDb();
+  const rows =
+    database
+      .prepare(
+        "SELECT document_id FROM documents ORDER BY updated_at DESC, file_name ASC"
+      )
+      .all();
+
+  const refreshed =
+    withTransaction(transactionDatabase =>
+      rows.map(row =>
+        syncDocumentOrganization(
+          transactionDatabase,
+          row.document_id
+        )
+      )
+    )
+      .filter(Boolean);
+
+  writeJsonSnapshotSafely(
+    database
+  );
+
+  log.info(
+    "organizer.refresh-all.completed",
+    {
+      documents:
+        refreshed.length
+    }
+  );
+
+  return {
+    documents:
+      refreshed.length
+  };
+}
+
 export function searchDocuments(query) {
 
   const ftsDocs =

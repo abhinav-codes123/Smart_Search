@@ -99,6 +99,26 @@ export const VIRTUAL_FOLDER_TREE = [
     source: "system"
   },
   {
+    id: "student-records",
+    name: "Student Records",
+    source: "system"
+  },
+  {
+    id: "medical",
+    name: "Medical",
+    source: "system"
+  },
+  {
+    id: "business-documents",
+    name: "Business Documents",
+    source: "system"
+  },
+  {
+    id: "course-learning",
+    name: "Course Learning",
+    source: "system"
+  },
+  {
     id: "assignments",
     name: "Assignments",
     source: "system"
@@ -144,222 +164,312 @@ const RULES = [
   {
     folderId: "certificates",
     label: "certificate evidence",
-    weight: 8,
+    baseWeight: 5,
+    minSignalWeight: 4,
     terms: [
-      "certificate",
-      "certification",
-      "awarded",
-      "completion",
-      "participation",
-      "participant",
-      "congratulations",
-      "verify certificate",
-      "certificate id"
+      ["certificate", 4],
+      ["certificate of completion", 6],
+      ["certification", 4],
+      ["awarded", 2],
+      ["completion", 2],
+      ["participation", 2],
+      ["participant", 1],
+      ["congratulations", 3],
+      ["verify certificate", 4],
+      ["certificate id", 4]
+    ]
+  },
+  {
+    folderId: "student-records",
+    label: "student record evidence",
+    baseWeight: 4,
+    minSignalWeight: 6,
+    terms: [
+      ["student", 3],
+      ["class", 2],
+      ["section", 2],
+      ["subject", 2],
+      ["teacher", 2],
+      ["report", 3],
+      ["report card", 5],
+      ["term", 2],
+      ["marks", 3],
+      ["grade", 3],
+      ["satisfactory", 2],
+      ["outstanding", 2],
+      ["mathematics", 1],
+      ["computer", 1]
+    ]
+  },
+  {
+    folderId: "medical",
+    label: "medical document evidence",
+    baseWeight: 5,
+    minSignalWeight: 5,
+    terms: [
+      ["patient", 4],
+      ["prescription", 5],
+      ["dosage", 4],
+      ["dose", 3],
+      ["tablet", 4],
+      ["medicine", 4],
+      ["route", 2],
+      ["duration", 2],
+      ["meals", 2],
+      ["daily", 1],
+      ["days", 1],
+      ["hemoglobin", 5]
+    ]
+  },
+  {
+    folderId: "business-documents",
+    label: "business document evidence",
+    baseWeight: 4,
+    minSignalWeight: 6,
+    terms: [
+      ["business", 3],
+      ["techsolutions", 5],
+      ["development", 2],
+      ["module", 2],
+      ["description", 2],
+      ["address", 2],
+      ["client", 3],
+      ["invoice", 5],
+      ["proposal", 4],
+      ["technical point", 3],
+      ["state condition", 3]
+    ]
+  },
+  {
+    folderId: "course-learning",
+    label: "course or learning evidence",
+    baseWeight: 3,
+    minSignalWeight: 5,
+    terms: [
+      ["course", 2],
+      ["learning", 3],
+      ["completed", 2],
+      ["completion", 2],
+      ["activity", 2],
+      ["lesson", 3],
+      ["training", 3],
+      ["workshop", 3]
     ]
   },
   {
     folderId: "blockchain",
     label: "blockchain topic",
-    weight: 7,
+    baseWeight: 4,
+    minSignalWeight: 3,
     terms: [
-      "blockchain",
-      "ethereum",
-      "smart contract",
-      "solidity",
-      "web3",
-      "crypto",
-      "ledger"
+      ["blockchain", 4],
+      ["ethereum", 4],
+      ["smart contract", 4],
+      ["solidity", 4],
+      ["web3", 3],
+      ["crypto", 2],
+      ["ledger", 2]
     ]
   },
   {
     folderId: "cs-operating-systems",
     label: "operating system concepts",
-    weight: 8,
+    baseWeight: 5,
+    minSignalWeight: 5,
     terms: [
-      "operating system",
-      "operating systems",
-      "deadlock",
-      "banker algorithm",
-      "safe state",
-      "memory hierarchy",
-      "cache memory",
-      "cpu cache",
-      "paging",
-      "segmentation",
-      "semaphore",
-      "process scheduling",
-      "page replacement",
-      "allocation matrix",
-      "available vector",
-      "cs4411"
+      ["operating system", 5],
+      ["operating systems", 5],
+      ["deadlock", 4],
+      ["banker algorithm", 5],
+      ["safe state", 3],
+      ["memory hierarchy", 4],
+      ["cache memory", 4],
+      ["cpu cache", 4],
+      ["paging", 3],
+      ["segmentation", 3],
+      ["semaphore", 3],
+      ["process scheduling", 4],
+      ["page replacement", 4],
+      ["allocation matrix", 4],
+      ["available vector", 3],
+      ["cs4411", 5]
     ]
   },
   {
     folderId: "cs-theory-of-computation",
     label: "automata and turing machine concepts",
-    weight: 8,
+    baseWeight: 5,
+    minSignalWeight: 5,
     terms: [
-      "turing",
-      "turing machine",
-      "finite control",
-      "automata",
-      "automaton",
-      "grammar",
-      "regular language",
-      "context free",
-      "pushdown automata",
-      "tape",
-      "read write head"
+      ["turing", 3],
+      ["turing machine", 6],
+      ["finite control", 4],
+      ["automata", 4],
+      ["automaton", 4],
+      ["grammar", 3],
+      ["regular language", 4],
+      ["context free", 4],
+      ["pushdown automata", 5],
+      ["tape", 2],
+      ["read write head", 5]
     ]
   },
   {
     folderId: "cs-algorithms",
     label: "algorithm and data structure concepts",
-    weight: 7,
+    baseWeight: 4,
+    minSignalWeight: 5,
     terms: [
-      "algorithm",
-      "data structure",
-      "postfix",
-      "infix",
-      "expression evaluation",
-      "stack",
-      "queue",
-      "tree traversal",
-      "graph",
-      "sorting",
-      "complexity",
-      "recursion"
+      ["algorithm", 3],
+      ["data structure", 5],
+      ["postfix", 5],
+      ["infix", 4],
+      ["expression evaluation", 5],
+      ["stack", 3],
+      ["queue", 2],
+      ["tree traversal", 4],
+      ["graph", 2],
+      ["sorting", 3],
+      ["complexity", 3],
+      ["recursion", 3]
     ]
   },
   {
     folderId: "cs-programming",
     label: "programming identifiers",
-    weight: 7,
+    baseWeight: 4,
+    minSignalWeight: 5,
     terms: [
-      "stdio.h",
-      "ctype.h",
-      "#include",
-      "printf",
-      "scanf",
-      "function",
-      "program",
-      "source code",
-      "compiler",
-      "javascript",
-      "python",
-      "java program",
-      "c program"
+      ["stdio.h", 5],
+      ["ctype.h", 5],
+      ["#include", 5],
+      ["printf", 4],
+      ["scanf", 4],
+      ["function", 2],
+      ["program", 2],
+      ["source code", 5],
+      ["compiler", 3],
+      ["javascript", 4],
+      ["python", 4],
+      ["java program", 4],
+      ["c program", 4]
     ]
   },
   {
     folderId: "cs-cyber-security",
     label: "security and vulnerability concepts",
-    weight: 8,
+    baseWeight: 5,
+    minSignalWeight: 5,
     terms: [
-      "file inclusion",
-      "dvwa",
-      "vulnerability",
-      "path traversal",
-      "sql injection",
-      "xss",
-      "csrf",
-      "burp",
-      "payload",
-      "exploit",
-      "authentication bypass",
-      "upload vulnerability"
+      ["file inclusion", 6],
+      ["dvwa", 5],
+      ["vulnerability", 4],
+      ["path traversal", 5],
+      ["sql injection", 5],
+      ["xss", 4],
+      ["csrf", 4],
+      ["burp", 4],
+      ["payload", 3],
+      ["exploit", 4],
+      ["authentication bypass", 5],
+      ["upload vulnerability", 5]
     ]
   },
   {
     folderId: "cs-databases",
     label: "database concepts",
-    weight: 7,
+    baseWeight: 4,
+    minSignalWeight: 5,
     terms: [
-      "database",
-      "dbms",
-      "sql",
-      "normalization",
-      "transaction",
-      "query",
-      "primary key",
-      "foreign key",
-      "relational model",
-      "schema"
+      ["database", 3],
+      ["dbms", 5],
+      ["sql", 3],
+      ["normalization", 4],
+      ["transaction", 3],
+      ["query", 2],
+      ["primary key", 4],
+      ["foreign key", 4],
+      ["relational model", 4],
+      ["schema", 3]
     ]
   },
   {
     folderId: "math-statistics",
     label: "statistics concepts",
-    weight: 8,
+    baseWeight: 5,
+    minSignalWeight: 5,
     terms: [
-      "statistics",
-      "statistical",
-      "sampling theory",
-      "test of significance",
-      "t-test",
-      "standard deviation",
-      "population mean",
-      "sample mean",
-      "hypothesis",
-      "confidence interval",
-      "n < 30",
-      "chi square"
+      ["statistics", 4],
+      ["statistical", 4],
+      ["sampling theory", 5],
+      ["test of significance", 5],
+      ["t-test", 5],
+      ["standard deviation", 4],
+      ["population mean", 4],
+      ["sample mean", 4],
+      ["hypothesis", 3],
+      ["confidence interval", 4],
+      ["n < 30", 4],
+      ["chi square", 4]
     ]
   },
   {
     folderId: "math-discrete-mathematics",
     label: "discrete mathematics concepts",
-    weight: 7,
+    baseWeight: 4,
+    minSignalWeight: 5,
     terms: [
-      "discrete mathematics",
-      "graph theory",
-      "set theory",
-      "relation",
-      "function",
-      "truth table",
-      "proposition",
-      "combinatorics",
-      "permutation",
-      "recurrence"
+      ["discrete mathematics", 5],
+      ["graph theory", 4],
+      ["set theory", 4],
+      ["relation", 2],
+      ["function", 1],
+      ["truth table", 4],
+      ["proposition", 3],
+      ["combinatorics", 4],
+      ["permutation", 3],
+      ["recurrence", 3]
     ]
   },
   {
     folderId: "assignments",
     label: "assignment or question paper signals",
-    weight: 6,
+    baseWeight: 4,
+    minSignalWeight: 5,
     terms: [
-      "assignment",
-      "homework",
-      "question paper",
-      "lab manual",
-      "practical",
-      "submit",
-      "deadline",
-      "marks",
-      "rubric",
-      "bcs303",
-      "bas302",
-      "assignment04"
+      ["assignment", 4],
+      ["homework", 4],
+      ["question paper", 5],
+      ["lab manual", 4],
+      ["practical", 3],
+      ["submit", 2],
+      ["deadline", 3],
+      ["marks", 2],
+      ["rubric", 3],
+      ["bcs303", 5],
+      ["bas302", 5],
+      ["assignment04", 5]
     ]
   },
   {
     folderId: "notes",
     label: "notes or chapter signals",
-    weight: 5,
+    baseWeight: 3,
+    minSignalWeight: 5,
     terms: [
-      "notes",
-      "chapter",
-      "unit",
-      "unit 1",
-      "unit 2",
-      "unit 3",
-      "unit 4",
-      "unit 5",
-      "lecture",
-      "topic",
-      "definition",
-      "advantages",
-      "features"
+      ["notes", 5],
+      ["chapter", 3],
+      ["unit", 1],
+      ["unit 1", 3],
+      ["unit 2", 3],
+      ["unit 3", 3],
+      ["unit 4", 3],
+      ["unit 5", 3],
+      ["lecture", 4],
+      ["topic", 2],
+      ["definition", 3],
+      ["advantages", 2],
+      ["features", 2]
     ]
   }
 ];
@@ -495,6 +605,26 @@ function addScore(scores, folderId, amount, reason) {
   );
 }
 
+function getTermValue(term) {
+  if (
+    Array.isArray(term)
+  ) {
+    return {
+      text:
+        term[0],
+      weight:
+        term[1] ?? 1
+    };
+  }
+
+  return {
+    text:
+      term,
+    weight:
+      1
+  };
+}
+
 function getConfidence(topScore, secondScore, document) {
   if (topScore <= 0) {
     return 0.2;
@@ -546,12 +676,16 @@ function isReviewNeeded(document, confidence, topScore) {
 
   return Boolean(
     document?.status === "failed" ||
-    confidence < 0.52 ||
-    topScore < 3 ||
-    textQuality < 35 ||
+    confidence < 0.58 ||
+    topScore < 8 ||
+    (
+      textQuality < 35 &&
+      topScore < 18
+    ) ||
     (
       wordCount > 0 &&
-      wordCount < 12
+      wordCount < 12 &&
+      topScore < 12
     )
   );
 }
@@ -687,30 +821,41 @@ export function suggestOrganization(document = {}) {
     of RULES
   ) {
     let matched = 0;
+    let signalWeight = 0;
 
     for (
       const term
       of rule.terms
     ) {
+      const termValue =
+        getTermValue(
+          term
+        );
+
       if (
         hasTerm(
           normalized,
           compact,
-          term
+          termValue.text
         )
       ) {
         matched += 1;
+        signalWeight +=
+          termValue.weight;
       }
     }
 
     if (
-      matched > 0
+      matched > 0 &&
+      signalWeight >=
+        (rule.minSignalWeight || 1)
     ) {
       addScore(
         scores,
         rule.folderId,
-        rule.weight + matched * 1.6,
-        `${rule.label}: ${matched} signal${matched === 1 ? "" : "s"}`
+        (rule.baseWeight || 0) +
+          signalWeight,
+        `${rule.label}: ${matched} signal${matched === 1 ? "" : "s"}, weight ${signalWeight}`
       );
     }
   }
@@ -730,7 +875,7 @@ export function suggestOrganization(document = {}) {
     addScore(
       scores,
       FILE_TYPE_FOLDERS[extension],
-      2,
+      1.5,
       `${extension} file type`
     );
   }
@@ -742,9 +887,9 @@ export function suggestOrganization(document = {}) {
     const categoryMap = {
       Certificate: "certificates",
       Identity: "documents",
-      Medical: "documents",
+      Medical: "medical",
       Resume: "documents",
-      Technical: "computer-science"
+      Technical: "business-documents"
     };
 
     if (
@@ -753,7 +898,9 @@ export function suggestOrganization(document = {}) {
       addScore(
         scores,
         categoryMap[document.category],
-        3,
+        document.category === "Certificate"
+          ? 3
+          : 1.5,
         `${document.category} classifier result`
       );
     }
@@ -805,12 +952,31 @@ export function suggestOrganization(document = {}) {
       confidence,
       top.score
     );
+  const primary =
+    needsReview
+      ? {
+          folderId:
+            "review-needed",
+          folder:
+            getVirtualFolderById(
+              "review-needed"
+            ),
+          score:
+            top.score,
+          reasons:
+            [
+              `needs review: ${top.reasons[0] || "weak or ambiguous evidence"}`
+            ]
+        }
+      : top;
 
   const secondaryFolderIds =
     ranked
-      .slice(1)
       .filter(item =>
-        item.score >= 4
+        item.folderId !== primary.folderId
+      )
+      .filter(item =>
+        item.score >= 8
       )
       .slice(0, 5)
       .map(item =>
@@ -819,9 +985,19 @@ export function suggestOrganization(document = {}) {
 
   const folderIds =
     unique([
-      top.folderId,
+      primary.folderId,
       ...getVirtualFolderAncestors(
-        top.folderId
+        primary.folderId
+      ),
+      needsReview
+        ? top.folderId
+        : null,
+      ...(
+        needsReview
+          ? getVirtualFolderAncestors(
+              top.folderId
+            )
+          : []
       ),
       ...secondaryFolderIds,
       ...secondaryFolderIds.flatMap(
@@ -834,10 +1010,10 @@ export function suggestOrganization(document = {}) {
 
   return {
     primaryFolderId:
-      top.folderId,
+      primary.folderId,
     primaryFolderPath:
-      top.folder?.path ||
-      top.folder?.name ||
+      primary.folder?.path ||
+      primary.folder?.name ||
       "Other",
     secondaryFolderIds,
     secondaryFolderPaths:
@@ -853,10 +1029,13 @@ export function suggestOrganization(document = {}) {
       ) / 100,
     needsReview,
     reason:
-      top.reasons.slice(0, 3),
+      primary.reasons.slice(0, 3),
     alternatives:
       ranked
-        .slice(1, 4)
+        .filter(item =>
+          item.folderId !== primary.folderId
+        )
+        .slice(0, 3)
         .map(item => ({
           folderId:
             item.folderId,

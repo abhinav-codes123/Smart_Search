@@ -20,6 +20,13 @@ import {
   buildTextQuality
 } from "./textQuality.js";
 import {
+  getDefaultVirtualFolders,
+  getOrganizationSearchText,
+  getVirtualFolderAncestors,
+  getVirtualFolderById,
+  suggestOrganization
+} from "../src/utils/organizer.js";
+import {
   generateKeywordTags,
   generateTitleTags
 } from "../src/utils/tagGenerator.js";
@@ -77,9 +84,11 @@ const SQLITE_DB_PATH =
   );
 
 const EMPTY_JSON_DB = {
-  version: 2,
+  version: 3,
   documents: [],
   pages: [],
+  virtual_folders: [],
+  document_virtual_folders: [],
   jobs: []
 };
 const CLEAN_TEXT_VERSION = 8;
@@ -254,6 +263,33 @@ function createSchema(database) {
         ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS virtual_folders (
+      folder_id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      parent_id TEXT,
+      display_path TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'system',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS document_virtual_folders (
+      document_id TEXT NOT NULL,
+      folder_id TEXT NOT NULL,
+      confidence REAL NOT NULL DEFAULT 0,
+      reason_json TEXT NOT NULL DEFAULT '[]',
+      is_primary INTEGER NOT NULL DEFAULT 0,
+      source TEXT NOT NULL DEFAULT 'auto',
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (document_id, folder_id),
+      FOREIGN KEY (document_id)
+        REFERENCES documents(document_id)
+        ON DELETE CASCADE,
+      FOREIGN KEY (folder_id)
+        REFERENCES virtual_folders(folder_id)
+        ON DELETE CASCADE
+    );
+
     CREATE VIRTUAL TABLE IF NOT EXISTS document_fts
       USING fts5(
         document_id UNINDEXED,
@@ -270,7 +306,14 @@ function createSchema(database) {
 
     CREATE INDEX IF NOT EXISTS idx_ocr_jobs_status
       ON ocr_jobs(status, attempts, created_at);
+
+    CREATE INDEX IF NOT EXISTS idx_document_virtual_folders_folder
+      ON document_virtual_folders(folder_id, is_primary, confidence);
   `);
+
+  ensureDefaultVirtualFolders(
+    database
+  );
 
   ensureColumn(
     database,
@@ -358,6 +401,47 @@ function ensureColumn(
   database.exec(
     `ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`
   );
+}
+
+function ensureDefaultVirtualFolders(database) {
+
+  const timestamp =
+    now();
+
+  for (
+    const folder
+    of getDefaultVirtualFolders()
+  ) {
+    database
+      .prepare(`
+        INSERT INTO virtual_folders (
+          folder_id,
+          name,
+          parent_id,
+          display_path,
+          source,
+          sort_order,
+          updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(folder_id) DO UPDATE SET
+          name = excluded.name,
+          parent_id = excluded.parent_id,
+          display_path = excluded.display_path,
+          source = excluded.source,
+          sort_order = excluded.sort_order,
+          updated_at = excluded.updated_at
+      `)
+      .run(
+        folder.id,
+        folder.name,
+        folder.parentId,
+        folder.path,
+        folder.source || "system",
+        folder.sortOrder,
+        timestamp
+      );
+  }
 }
 
 function backfillMissingCleanText(database) {
@@ -460,6 +544,10 @@ function backfillMissingCleanText(database) {
     of rows
   ) {
     syncDocumentStatus(
+      database,
+      row.document_id
+    );
+    syncDocumentOrganization(
       database,
       row.document_id
     );
@@ -683,7 +771,7 @@ function normalizeJsonDB(raw) {
     jsonDb = {
       ...EMPTY_JSON_DB,
       ...raw,
-      version: 2,
+      version: 3,
       documents:
         (raw.documents || [])
           .map(
@@ -855,6 +943,10 @@ function migrateJsonIfNeeded(database) {
       of jsonDb.documents
     ) {
       syncDocumentStatus(
+        database,
+        document.documentId
+      );
+      syncDocumentOrganization(
         database,
         document.documentId
       );
@@ -1094,6 +1186,286 @@ function getTagsForSnapshot(database) {
     }));
 }
 
+function getVirtualFoldersForSnapshot(database) {
+
+  return database
+    .prepare(
+      "SELECT * FROM virtual_folders ORDER BY sort_order ASC, display_path ASC"
+    )
+    .all()
+    .map(row => ({
+      folderId:
+        row.folder_id,
+      name:
+        row.name,
+      parentId:
+        row.parent_id,
+      path:
+        row.display_path,
+      source:
+        row.source,
+      sortOrder:
+        row.sort_order,
+      updatedAt:
+        row.updated_at
+    }));
+}
+
+function getDocumentVirtualFoldersForSnapshot(database) {
+
+  return database
+    .prepare(`
+      SELECT
+        document_id,
+        folder_id,
+        confidence,
+        reason_json,
+        is_primary,
+        source,
+        updated_at
+      FROM document_virtual_folders
+      ORDER BY document_id, is_primary DESC, confidence DESC, folder_id
+    `)
+    .all()
+    .map(row => ({
+      documentId:
+        row.document_id,
+      folderId:
+        row.folder_id,
+      confidence:
+        row.confidence,
+      reason:
+        fromJson(
+          row.reason_json,
+          []
+        ),
+      isPrimary:
+        Boolean(row.is_primary),
+      source:
+        row.source,
+      updatedAt:
+        row.updated_at
+    }));
+}
+
+function getOrganizationForDocument(database, documentId) {
+
+  const rows =
+    database
+      .prepare(`
+        SELECT
+          document_virtual_folders.document_id,
+          document_virtual_folders.folder_id,
+          document_virtual_folders.confidence,
+          document_virtual_folders.reason_json,
+          document_virtual_folders.is_primary,
+          document_virtual_folders.source,
+          virtual_folders.name,
+          virtual_folders.display_path,
+          virtual_folders.parent_id
+        FROM document_virtual_folders
+        JOIN virtual_folders
+          ON virtual_folders.folder_id = document_virtual_folders.folder_id
+        WHERE document_virtual_folders.document_id = ?
+        ORDER BY
+          document_virtual_folders.is_primary DESC,
+          document_virtual_folders.confidence DESC,
+          virtual_folders.sort_order ASC,
+          virtual_folders.display_path ASC
+      `)
+      .all(
+        documentId
+      );
+
+  if (
+    rows.length === 0
+  ) {
+    return null;
+  }
+
+  const primary =
+    rows.find(row =>
+      row.is_primary
+    ) ||
+    rows[0];
+
+  const folderIds =
+    rows.map(row =>
+      row.folder_id
+    );
+  const inheritedFolderIds =
+    new Set(
+      getVirtualFolderAncestors(
+        primary.folder_id
+      )
+    );
+  const secondaryRows =
+    rows.filter(row =>
+      row.folder_id !== primary.folder_id &&
+      row.folder_id !== "review-needed" &&
+      !inheritedFolderIds.has(
+        row.folder_id
+      )
+    );
+
+  return {
+    primaryFolderId:
+      primary.folder_id,
+    primaryFolderPath:
+      primary.display_path,
+    secondaryFolderIds:
+      secondaryRows.map(row =>
+        row.folder_id
+      ),
+    secondaryFolderPaths:
+      secondaryRows.map(row =>
+        row.display_path
+      ),
+    folderIds,
+    confidence:
+      Math.round(
+        Number(primary.confidence || 0) * 100
+      ) / 100,
+    needsReview:
+      folderIds.includes(
+        "review-needed"
+      ),
+    reason:
+      fromJson(
+        primary.reason_json,
+        []
+      ),
+    folders:
+      rows.map(row => ({
+        folderId:
+          row.folder_id,
+        name:
+          row.name,
+        path:
+          row.display_path,
+        isPrimary:
+          Boolean(row.is_primary),
+        confidence:
+          row.confidence,
+        source:
+          row.source
+      }))
+  };
+}
+
+function normalizeOrganizationForStorage(organization) {
+
+  const primaryFolderId =
+    getVirtualFolderById(
+      organization?.primaryFolderId
+    )
+      ? organization.primaryFolderId
+      : "other";
+  const secondaryFolderIds =
+    (organization?.secondaryFolderIds || [])
+      .filter(folderId =>
+        getVirtualFolderById(folderId)
+      );
+  const folderIds =
+    [
+      primaryFolderId,
+      ...getVirtualFolderAncestors(
+        primaryFolderId
+      ),
+      ...secondaryFolderIds,
+      ...secondaryFolderIds.flatMap(
+        getVirtualFolderAncestors
+      ),
+      ...(organization?.folderIds || [])
+        .filter(folderId =>
+          getVirtualFolderById(folderId)
+        ),
+      organization?.needsReview
+        ? "review-needed"
+        : null
+    ]
+      .filter(
+        (folderId, index, all) =>
+          folderId &&
+          folderId !== "all-files" &&
+          all.indexOf(folderId) === index
+      );
+
+  return {
+    primaryFolderId,
+    folderIds,
+    confidence:
+      Number(
+        organization?.confidence || 0
+      ),
+    reason:
+      Array.isArray(
+        organization?.reason
+      )
+        ? organization.reason
+        : []
+  };
+}
+
+function upsertDocumentOrganization(
+  database,
+  documentId,
+  organization
+) {
+
+  const normalized =
+    normalizeOrganizationForStorage(
+      organization
+    );
+  const timestamp =
+    now();
+
+  database
+    .prepare(
+      "DELETE FROM document_virtual_folders WHERE document_id = ?"
+    )
+    .run(
+      documentId
+    );
+
+  for (
+    const folderId
+    of normalized.folderIds
+  ) {
+    database
+      .prepare(`
+        INSERT INTO document_virtual_folders (
+          document_id,
+          folder_id,
+          confidence,
+          reason_json,
+          is_primary,
+          source,
+          updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        documentId,
+        folderId,
+        folderId === normalized.primaryFolderId
+          ? normalized.confidence
+          : 0,
+        toJson(
+          normalized.reason,
+          []
+        ),
+        folderId === normalized.primaryFolderId
+          ? 1
+          : 0,
+        "auto",
+        timestamp
+      );
+  }
+
+  return normalized;
+}
+
 function aggregateDocumentText(document, pages) {
 
   const pageText =
@@ -1173,6 +1545,11 @@ function flattenDocument(
     buildTextQuality(
       text
     );
+  const organization =
+    getOrganizationForDocument(
+      database,
+      document.documentId
+    );
 
   return {
     ...document,
@@ -1198,6 +1575,7 @@ function flattenDocument(
     noiseRatio:
       document.noiseRatio ??
       quality.noiseRatio,
+    organization,
     pages:
       pages.map(page => ({
         pageNumber:
@@ -1213,6 +1591,141 @@ function flattenDocument(
         status:
           page.status
       }))
+  };
+}
+
+function summarizeDocument(
+  database,
+  row
+) {
+
+  const document =
+    rowToDocument(
+      row
+    );
+
+  if (!document) {
+    return null;
+  }
+
+  const organization =
+    getOrganizationForDocument(
+      database,
+      document.documentId
+    );
+  const previewText =
+    document.cleanText ||
+    document.text ||
+    "";
+
+  return {
+    documentId:
+      document.documentId,
+    fileHash:
+      document.fileHash,
+    filePath:
+      document.primaryPath ||
+      document.filePath,
+    fileName:
+      document.fileName,
+    titleTags:
+      document.titleTags || [],
+    keywordTags:
+      document.keywordTags || [],
+    category:
+      document.category || "Unknown",
+    metadata:
+      document.metadata || {},
+    textQuality:
+      document.textQuality,
+    rawWordCount:
+      document.rawWordCount,
+    cleanWordCount:
+      document.cleanWordCount,
+    noiseRatio:
+      document.noiseRatio,
+    totalPages:
+      document.totalPages,
+    indexedPages:
+      document.indexedPages,
+    status:
+      document.status || "done",
+    scannedAt:
+      document.scannedAt,
+    updatedAt:
+      document.updatedAt,
+    organization,
+    preview:
+      previewText.slice(
+        0,
+        320
+      ),
+    hasFullText:
+      Boolean(
+        document.text ||
+        document.cleanText
+      )
+  };
+}
+
+function summarizeSearchResult(document) {
+
+  return {
+    documentId:
+      document.documentId,
+    fileHash:
+      document.fileHash,
+    filePath:
+      document.filePath ||
+      document.primaryPath,
+    fileName:
+      document.fileName,
+    titleTags:
+      document.titleTags || [],
+    keywordTags:
+      document.keywordTags || [],
+    category:
+      document.category || "Unknown",
+    metadata:
+      document.metadata || {},
+    textQuality:
+      document.textQuality,
+    rawWordCount:
+      document.rawWordCount,
+    cleanWordCount:
+      document.cleanWordCount,
+    noiseRatio:
+      document.noiseRatio,
+    totalPages:
+      document.totalPages,
+    indexedPages:
+      document.indexedPages,
+    status:
+      document.status || "done",
+    scannedAt:
+      document.scannedAt,
+    updatedAt:
+      document.updatedAt,
+    organization:
+      document.organization || null,
+    preview:
+      document.preview ||
+      document.cleanText?.slice(
+        0,
+        320
+      ) ||
+      document.text?.slice(
+        0,
+        320
+      ) ||
+      "",
+    score:
+      document.score,
+    hasFullText:
+      Boolean(
+        document.text ||
+        document.cleanText
+      )
   };
 }
 
@@ -1260,6 +1773,11 @@ function createJsonSnapshot(database) {
       buildTextQuality(
         aggregateText
       );
+    const organization =
+      getOrganizationForDocument(
+        database,
+        document.documentId
+      );
 
     const snapshotDocument = {
       documentId:
@@ -1298,6 +1816,7 @@ function createJsonSnapshot(database) {
       noiseRatio:
         document.noiseRatio ??
         aggregateQuality.noiseRatio,
+      organization,
       totalPages:
         document.totalPages,
       indexedPages:
@@ -1372,7 +1891,7 @@ function createJsonSnapshot(database) {
     );
 
   return {
-    version: 2,
+    version: 3,
     source:
       "sqlite-snapshot",
     generatedAt:
@@ -1384,6 +1903,14 @@ function createJsonSnapshot(database) {
     documents,
     document_paths:
       getPathsForSnapshot(
+        database
+      ),
+    virtual_folders:
+      getVirtualFoldersForSnapshot(
+        database
+      ),
+    document_virtual_folders:
+      getDocumentVirtualFoldersForSnapshot(
         database
       ),
     pages,
@@ -1427,6 +1954,8 @@ function writeJsonSnapshot(database) {
         snapshot.documents.length,
       pages:
         snapshot.pages.length,
+      virtualFolders:
+        snapshot.virtual_folders.length,
       jobs:
         snapshot.jobs.length
     }
@@ -1833,6 +2362,69 @@ function syncDocumentStatus(
     );
 }
 
+function syncDocumentOrganization(
+  database,
+  documentId
+) {
+
+  const row =
+    getDocumentRow(
+      database,
+      documentId
+    );
+
+  if (!row) {
+    return null;
+  }
+
+  const previous =
+    getOrganizationForDocument(
+      database,
+      documentId
+    );
+  const document =
+    flattenDocument(
+      database,
+      row
+    );
+  const organization =
+    suggestOrganization({
+      ...document,
+      organization:
+        undefined
+    });
+  const saved =
+    upsertDocumentOrganization(
+      database,
+      documentId,
+      organization
+    );
+
+  if (
+    previous?.primaryFolderId !==
+    saved.primaryFolderId
+  ) {
+    log.info(
+      "organizer.document.assigned",
+      {
+        documentId,
+        previousFolder:
+          previous?.primaryFolderPath || null,
+        folder:
+          getVirtualFolderById(
+            saved.primaryFolderId
+          )?.path,
+        confidence:
+          saved.confidence,
+        reason:
+          saved.reason
+      }
+    );
+  }
+
+  return saved;
+}
+
 function refreshSearchIndex(
   database,
   documentId
@@ -1852,6 +2444,10 @@ function refreshSearchIndex(
     flattenDocument(
       database,
       row
+    );
+  const organizationText =
+    getOrganizationSearchText(
+      document
     );
 
   database
@@ -1891,7 +2487,12 @@ function refreshSearchIndex(
       JSON.stringify(
         document.metadata || {}
       ),
-      document.category || "",
+      [
+        document.category || "",
+        organizationText
+      ]
+        .filter(Boolean)
+        .join(" "),
       document.cleanText ||
         buildTextQuality(
           document.text || ""
@@ -2119,6 +2720,10 @@ export function insertDocument(document) {
       database,
       nextDocument.documentId
     );
+    syncDocumentOrganization(
+      database,
+      nextDocument.documentId
+    );
     refreshSearchIndex(
       database,
       nextDocument.documentId
@@ -2181,6 +2786,45 @@ export function getAllDocuments() {
     .filter(Boolean);
 }
 
+export function getDocumentSummaries() {
+
+  const database =
+    getDb();
+
+  return database
+    .prepare(
+      "SELECT * FROM documents ORDER BY updated_at DESC, file_name ASC"
+    )
+    .all()
+    .map(row =>
+      summarizeDocument(
+        database,
+        row
+      )
+    )
+    .filter(Boolean);
+}
+
+export function getDocumentDetail(documentId) {
+
+  if (!documentId) {
+    return null;
+  }
+
+  const database =
+    getDb();
+  const row =
+    getDocumentRow(
+      database,
+      documentId
+    );
+
+  return flattenDocument(
+    database,
+    row
+  );
+}
+
 export function getDocumentByFileHash(fileHash) {
 
   if (!fileHash) {
@@ -2223,6 +2867,15 @@ export function searchDocuments(query) {
   return searchDocumentsInDocs(
     getAllDocuments(),
     query
+  );
+}
+
+export function searchDocumentSummaries(query) {
+
+  return searchDocuments(
+    query
+  ).map(
+    summarizeSearchResult
   );
 }
 
@@ -2412,6 +3065,10 @@ export function completeOcrJob(job, pageResult) {
       database,
       job.documentId
     );
+    syncDocumentOrganization(
+      database,
+      job.documentId
+    );
     refreshSearchIndex(
       database,
       job.documentId
@@ -2473,6 +3130,10 @@ export function failOcrJob(job, error) {
     }
 
     syncDocumentStatus(
+      database,
+      job.documentId
+    );
+    syncDocumentOrganization(
       database,
       job.documentId
     );

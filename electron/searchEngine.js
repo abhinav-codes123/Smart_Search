@@ -239,6 +239,14 @@ function buildSearchText(doc) {
       doc.metadata ?? {}
     ),
     doc.category,
+    doc.organization?.primaryFolderPath,
+    doc.organization?.secondaryFolderPaths
+      ?.join(" "),
+    doc.organization?.folders
+      ?.map(folder =>
+        folder.path
+      )
+      .join(" "),
     doc.cleanText ??
       doc.text ??
       doc.ocrText
@@ -572,6 +580,22 @@ export function searchDocumentsInDocs(
         [
           doc.category,
           25,
+          false
+        ],
+        [
+          [
+            doc.organization?.primaryFolderPath,
+            doc.organization?.secondaryFolderPaths
+              ?.join(" "),
+            doc.organization?.folders
+              ?.map(folder =>
+                folder.path
+              )
+              .join(" ")
+          ]
+            .filter(Boolean)
+            .join(" "),
+          55,
           false
         ],
         [

@@ -87,6 +87,12 @@ contextBridge.exposeInMainWorld(
       ipcRenderer.invoke(
         "get-documents"
       ),
+    getDocumentDetail:
+      (documentId) =>
+        ipcRenderer.invoke(
+          "get-document-detail",
+          documentId
+        ),
     searchDocuments:
       (query) =>
         ipcRenderer.invoke(

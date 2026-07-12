@@ -1,4 +1,5 @@
 import {
+  useRef,
   useCallback,
   useEffect,
   useMemo,
@@ -10,6 +11,12 @@ import {
   generateKeywordTags,
   generateTitleTags
 } from "./utils/tagGenerator";
+import {
+  VIRTUAL_FOLDER_TREE,
+  flattenVirtualFolders,
+  getDocumentFolderIds,
+  suggestOrganization
+} from "./utils/organizer";
 import "./App.css";
 
 const TYPE_OPTIONS = [
@@ -35,6 +42,9 @@ const SEARCH_EXAMPLES = [
   "CPU cache",
   "stdio.h"
 ];
+
+const imageDataCache =
+  new Map();
 
 function getExtension(filePath = "") {
   const match =
@@ -159,14 +169,35 @@ function compactPath(filePath = "") {
   ].join("/");
 }
 
+function hydrateDocument(document) {
+  if (!document) {
+    return document;
+  }
+
+  return {
+    ...document,
+    organization:
+      document.organization ||
+      suggestOrganization(
+        document
+      )
+  };
+}
+
+function getOrganization(document) {
+  return document?.organization ||
+    suggestOrganization(
+      document || {}
+    );
+}
+
 function buildDocumentFromExtraction(file, result) {
   const text =
     result.text || "";
   const cleanText =
     result.cleanText ||
     text;
-
-  return {
+  const document = {
     documentId:
       result.documentId,
     fileHash:
@@ -214,15 +245,80 @@ function buildDocumentFromExtraction(file, result) {
     scannedAt:
       new Date().toISOString()
   };
+
+  return hydrateDocument(
+    document
+  );
 }
 
 function ImageThumbnail({ path }) {
   const [
     imageSrc,
     setImageSrc
-  ] = useState(null);
+  ] = useState(() =>
+    imageDataCache.get(path) ?? null
+  );
+  const [
+    isVisible,
+    setIsVisible
+  ] = useState(false);
+  const ref =
+    useRef(null);
 
   useEffect(() => {
+    const element =
+      ref.current;
+
+    if (!element) {
+      return undefined;
+    }
+
+    if (!("IntersectionObserver" in window)) {
+      queueMicrotask(() =>
+        setIsVisible(true)
+      );
+      return undefined;
+    }
+
+    const observer =
+      new IntersectionObserver(
+        entries => {
+          if (
+            entries.some(entry =>
+              entry.isIntersecting
+            )
+          ) {
+            setIsVisible(true);
+            observer.disconnect();
+          }
+        },
+        {
+          rootMargin:
+            "180px"
+        }
+      );
+
+    observer.observe(
+      element
+    );
+
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isVisible) {
+      return undefined;
+    }
+
+    const cached =
+      imageDataCache.get(path);
+
+    if (cached !== undefined) {
+      return undefined;
+    }
+
     let cancelled = false;
 
     async function load() {
@@ -230,6 +326,11 @@ function ImageThumbnail({ path }) {
         await window
           .electronAPI
           .getImageData(path);
+
+      imageDataCache.set(
+        path,
+        data
+      );
 
       if (!cancelled) {
         setImageSrc(data);
@@ -241,11 +342,17 @@ function ImageThumbnail({ path }) {
     return () => {
       cancelled = true;
     };
-  }, [path]);
+  }, [
+    isVisible,
+    path
+  ]);
 
   if (!imageSrc) {
     return (
-      <div className="thumb-placeholder">
+      <div
+        className="thumb-placeholder"
+        ref={ref}
+      >
         IMG
       </div>
     );
@@ -253,17 +360,24 @@ function ImageThumbnail({ path }) {
 
   return (
     <img
+      ref={ref}
       src={imageSrc}
       alt=""
     />
   );
 }
 
-function FileThumb({ doc }) {
+function FileThumb({
+  doc,
+  loadImage = false
+}) {
   const type =
     getFileType(doc.filePath);
 
-  if (type === "image") {
+  if (
+    type === "image" &&
+    loadImage
+  ) {
     return (
       <ImageThumbnail
         path={doc.filePath}
@@ -274,6 +388,51 @@ function FileThumb({ doc }) {
   return (
     <div className={`file-icon type-${type}`}>
       {type.toUpperCase()}
+    </div>
+  );
+}
+
+function FolderTree({
+  folders,
+  selectedFolderId,
+  counts,
+  onSelect
+}) {
+  return (
+    <div className="folder-tree">
+      {
+        folders.map(folder => (
+          <div
+            key={folder.id}
+            className="folder-node"
+          >
+            <button
+              className={`folder-button ${selectedFolderId === folder.id ? "active" : ""}`}
+              onClick={() =>
+                onSelect(folder.id)
+              }
+            >
+              <span>
+                {folder.name}
+              </span>
+              <strong>
+                {counts[folder.id] || 0}
+              </strong>
+            </button>
+
+            {
+              folder.children?.length > 0 && (
+                <FolderTree
+                  folders={folder.children}
+                  selectedFolderId={selectedFolderId}
+                  counts={counts}
+                  onSelect={onSelect}
+                />
+              )
+            }
+          </div>
+        ))
+      }
     </div>
   );
 }
@@ -312,9 +471,17 @@ function App() {
     setCategoryFilter
   ] = useState("all");
   const [
+    selectedFolderId,
+    setSelectedFolderId
+  ] = useState("all-files");
+  const [
     selectedDoc,
     setSelectedDoc
   ] = useState(null);
+  const [
+    detailLoading,
+    setDetailLoading
+  ] = useState(false);
   const [
     uploadProgress,
     setUploadProgress
@@ -339,6 +506,55 @@ function App() {
     searchState,
     setSearchState
   ] = useState("idle");
+
+  const virtualFolders =
+    useMemo(
+      () =>
+        flattenVirtualFolders(
+          VIRTUAL_FOLDER_TREE
+        ),
+      []
+    );
+  const selectedFolder =
+    useMemo(
+      () =>
+        virtualFolders.find(folder =>
+          folder.id === selectedFolderId
+        ),
+      [
+        virtualFolders,
+        selectedFolderId
+      ]
+    );
+  const folderCounts =
+    useMemo(
+      () => {
+        const counts = {
+          "all-files":
+            documents.length
+        };
+
+        for (
+          const document
+          of documents
+        ) {
+          for (
+            const folderId
+            of getDocumentFolderIds(document)
+          ) {
+            if (folderId === "all-files") {
+              continue;
+            }
+
+            counts[folderId] =
+              (counts[folderId] || 0) + 1;
+          }
+        }
+
+        return counts;
+      },
+      [documents]
+    );
 
   const categoryOptions =
     useMemo(
@@ -375,13 +591,21 @@ function App() {
           )
             return false;
 
+          if (
+            selectedFolderId !== "all-files" &&
+            !getDocumentFolderIds(doc)
+              .includes(selectedFolderId)
+          )
+            return false;
+
           return true;
         }),
       [
         results,
         typeFilter,
         statusFilter,
-        categoryFilter
+        categoryFilter,
+        selectedFolderId
       ]
     );
 
@@ -400,9 +624,13 @@ function App() {
 
   async function refreshDocuments() {
     const docs =
-      await window
-        .electronAPI
-        .getDocuments();
+      (
+        await window
+          .electronAPI
+          .getDocuments()
+      ).map(
+        hydrateDocument
+      );
 
     setDocuments(docs);
 
@@ -440,8 +668,13 @@ function App() {
         return;
       }
 
-      setDocuments(docs);
-      setResults(docs);
+      const hydratedDocs =
+        docs.map(
+          hydrateDocument
+        );
+
+      setDocuments(hydratedDocs);
+      setResults(hydratedDocs);
       setQueueStatus(status || {});
     }
 
@@ -490,6 +723,62 @@ function App() {
       }
     };
   }, [refreshQueue]);
+
+  useEffect(() => {
+    if (
+      !selectedDoc?.documentId ||
+      selectedDoc.text ||
+      selectedDoc.cleanText ||
+      selectedDoc.pages?.length
+    ) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    async function loadDetail() {
+      setDetailLoading(true);
+
+      try {
+        const detail =
+          await window
+            .electronAPI
+            .getDocumentDetail(
+              selectedDoc.documentId
+            );
+
+        if (
+          !cancelled &&
+          detail
+        ) {
+          setSelectedDoc(current =>
+            current?.documentId ===
+              selectedDoc.documentId
+              ? hydrateDocument({
+                  ...current,
+                  ...detail
+                })
+              : current
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setDetailLoading(false);
+        }
+      }
+    }
+
+    loadDetail();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    selectedDoc?.cleanText,
+    selectedDoc?.documentId,
+    selectedDoc?.pages?.length,
+    selectedDoc?.text
+  ]);
 
   async function processFiles(files) {
     if (!files.length)
@@ -655,11 +944,15 @@ function App() {
     }
 
     const docs =
-      await window
+      (
+        await window
         .electronAPI
         .searchDocuments(
           trimmed
-        );
+        )
+      ).map(
+        hydrateDocument
+      );
 
     setResults(docs);
     setSearchState("idle");
@@ -684,6 +977,12 @@ function App() {
     selectedDoc?.cleanText ||
     selectedDoc?.text ||
     "";
+  const selectedOrganization =
+    selectedDoc
+      ? getOrganization(
+          selectedDoc
+        )
+      : null;
 
   return (
     <div className="app-shell">
@@ -784,6 +1083,24 @@ function App() {
                 ))
               }
             </div>
+          </section>
+
+          <section className="panel-section folder-section">
+            <div className="panel-heading">
+              <h2>
+                Virtual Folders
+              </h2>
+              <span>
+                no file moves
+              </span>
+            </div>
+
+            <FolderTree
+              folders={VIRTUAL_FOLDER_TREE}
+              selectedFolderId={selectedFolderId}
+              counts={folderCounts}
+              onSelect={setSelectedFolderId}
+            />
           </section>
 
           <section className="panel-section activity-section">
@@ -979,6 +1296,7 @@ function App() {
               </h2>
               <p>
                 {visibleResults.length} shown from {results.length || documents.length} indexed files
+                {selectedFolder ? ` in ${selectedFolder.path}` : ""}
               </p>
             </div>
           </section>
@@ -1007,7 +1325,10 @@ function App() {
                           }
                         >
                           <div className="result-thumb">
-                            <FileThumb doc={doc} />
+                            <FileThumb
+                              doc={doc}
+                              loadImage={viewMode === "grid"}
+                            />
                           </div>
 
                           <div className="result-body">
@@ -1046,6 +1367,9 @@ function App() {
                               </span>
                               <span>
                                 {doc.category || "Unknown"}
+                              </span>
+                              <span>
+                                {doc.organization?.primaryFolderPath || "Other"}
                               </span>
                               <span>
                                 {doc.totalPages ? `${doc.indexedPages || doc.pages?.length || 0}/${doc.totalPages} pages` : "single item"}
@@ -1141,14 +1465,38 @@ function App() {
 
               <section className="detail-section">
                 <h3>
-                  Suggested Category
+                  Virtual Folder
                 </h3>
                 <p className="category-box">
-                  {selectedDoc.category || "Unknown"}
+                  {selectedOrganization?.primaryFolderPath || "Other"}
                 </p>
                 <p className="muted">
-                  Reason: matched tags like {(selectedDoc.keywordTags || []).slice(0, 5).join(", ") || "document content"}.
+                  Confidence {Math.round((selectedOrganization?.confidence || 0) * 100)}%.
+                  {" "}
+                  Reason: {(selectedOrganization?.reason || []).join("; ") || "document content"}.
                 </p>
+                {
+                  selectedOrganization?.secondaryFolderPaths?.length > 0 && (
+                    <div className="tag-row">
+                      {
+                        selectedOrganization.secondaryFolderPaths
+                          .slice(0, 6)
+                          .map(folderPath => (
+                            <span key={folderPath}>
+                              {folderPath}
+                            </span>
+                          ))
+                      }
+                    </div>
+                  )
+                }
+                {
+                  selectedOrganization?.needsReview && (
+                    <p className="organizer-review">
+                      Needs review because the OCR or category confidence is low.
+                    </p>
+                  )
+                }
               </section>
 
               <section className="detail-section">
@@ -1184,7 +1532,11 @@ function App() {
                   Extracted Text
                 </h3>
                 <pre className="text-preview">
-                  {selectedText || "No extracted text stored yet."}
+                  {
+                    detailLoading
+                      ? "Loading extracted text..."
+                      : selectedText || "No extracted text stored yet."
+                  }
                 </pre>
               </section>
             </aside>

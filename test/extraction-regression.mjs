@@ -36,6 +36,10 @@ import {
   isDictionaryWord,
   isImportantIdentifier
 } from "../src/utils/dictionary.js";
+import {
+  getDocumentFolderIds,
+  suggestOrganization
+} from "../src/utils/organizer.js";
 
 const require =
   createRequire(import.meta.url);
@@ -748,6 +752,93 @@ try {
   );
   console.log("PASS OCR-safe tag generation");
 
+  const organizationCases = [
+    [
+      "Turing machine finite control tape read write head automata",
+      "cs-theory-of-computation",
+      "computer-science"
+    ],
+    [
+      "Operating systems deadlock banker algorithm safe state allocation matrix",
+      "cs-operating-systems",
+      "computer-science"
+    ],
+    [
+      "DVWA file inclusion vulnerability path traversal payload",
+      "cs-cyber-security",
+      "computer-science"
+    ],
+    [
+      "Statistics sampling theory t-test test of significance n < 30",
+      "math-statistics",
+      "mathematics"
+    ],
+    [
+      "Certificate of completion awarded for blockchain smart contract workshop",
+      "certificates",
+      "blockchain"
+    ]
+  ];
+
+  for (
+    const [
+      text,
+      expectedPrimary,
+      expectedFolder
+    ]
+    of organizationCases
+  ) {
+    const organization =
+      suggestOrganization({
+        fileName:
+          `${expectedPrimary}.pdf`,
+        cleanText:
+          text,
+        textQuality:
+          90,
+        cleanWordCount:
+          text.split(/\s+/).length
+      });
+
+    assert.equal(
+      organization.primaryFolderId,
+      expectedPrimary
+    );
+    assert.ok(
+      getDocumentFolderIds({
+        organization
+      }).includes(
+        expectedFolder
+      )
+    );
+  }
+
+  const reviewOrganization =
+    suggestOrganization({
+      fileName:
+        "noise.png",
+      cleanText:
+        "qonevade golpd unwixa5",
+      textQuality:
+        20,
+      cleanWordCount:
+        3
+    });
+
+  assert.equal(
+    reviewOrganization.needsReview,
+    true
+  );
+  assert.ok(
+    getDocumentFolderIds({
+      organization:
+        reviewOrganization
+    }).includes(
+      "review-needed"
+    )
+  );
+  console.log("PASS virtual organiser rules");
+
   await assertExtracts(
     parityJpeg,
     /PARITY OCR TEXT/
@@ -981,6 +1072,59 @@ try {
     searchDocuments("background page done")
       .some(doc =>
         doc.documentId === lateDocumentId
+      )
+  );
+
+  const organizerHash =
+    "organizer_operating_systems_fixture_hash";
+  const organizerDocumentId =
+    createDocumentId(
+      organizerHash
+    );
+
+  insertDocument({
+    documentId:
+      organizerDocumentId,
+    fileHash:
+      organizerHash,
+    filePath:
+      path.join(
+        tempDir,
+        "os-notes.pdf"
+      ),
+    fileName:
+      "os-notes.pdf",
+    cleanText:
+      "Operating systems deadlock banker algorithm safe state memory hierarchy",
+    text:
+      "Operating systems deadlock banker algorithm safe state memory hierarchy",
+    textQuality:
+      94,
+    cleanWordCount:
+      8,
+    status:
+      "done"
+  });
+
+  const organizerDoc =
+    getAllDocuments()
+      .find(doc =>
+        doc.documentId === organizerDocumentId
+      );
+
+  assert.equal(
+    organizerDoc.organization.primaryFolderId,
+    "cs-operating-systems"
+  );
+  assert.ok(
+    organizerDoc.organization.folderIds.includes(
+      "computer-science"
+    )
+  );
+  assert.ok(
+    searchDocuments("computer science operating systems")
+      .some(doc =>
+        doc.documentId === organizerDocumentId
       )
   );
   console.log("PASS database hash dedupe and page queue");

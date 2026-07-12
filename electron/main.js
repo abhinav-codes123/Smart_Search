@@ -10,8 +10,9 @@ import { fileURLToPath } from "url";
 import {
   insertDocument,
   getDocumentByFileHash,
-  getAllDocuments,
-  searchDocuments,
+  getDocumentDetail,
+  getDocumentSummaries,
+  searchDocumentSummaries,
   claimNextOcrJob,
   completeOcrJob,
   failOcrJob,
@@ -36,6 +37,58 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 let ocrQueueRunning = false;
+const unavailableThumbnailPaths =
+  new Set();
+
+function recordUnavailableThumbnail(
+  imagePath,
+  error
+) {
+
+  if (
+    unavailableThumbnailPaths.has(
+      imagePath
+    )
+  ) {
+    return;
+  }
+
+  unavailableThumbnailPaths.add(
+    imagePath
+  );
+
+  const count =
+    unavailableThumbnailPaths.size;
+
+  if (
+    count <= 3
+  ) {
+    log.warn(
+      "image.thumbnail.unavailable",
+      {
+        imagePath,
+        error:
+          error.message
+      }
+    );
+
+    return;
+  }
+
+  if (
+    count === 4 ||
+    count % 25 === 0
+  ) {
+    log.warn(
+      "image.thumbnail.unavailable.summary",
+      {
+        count,
+        reason:
+          "macOS denied thumbnail file access; showing placeholders"
+      }
+    );
+  }
+}
 
 async function processOcrQueue() {
 
@@ -345,10 +398,21 @@ ipcMain.handle(
   "get-image-data",
   async (_, imagePath) => {
 
-    const buffer =
-      fs.readFileSync(
-        imagePath
+    let buffer;
+
+    try {
+      buffer =
+        fs.readFileSync(
+          imagePath
+        );
+    } catch (error) {
+      recordUnavailableThumbnail(
+        imagePath,
+        error
       );
+
+      return null;
+    }
 
     const ext =
       path
@@ -620,16 +684,24 @@ ipcMain.handle(
   "get-documents",
   async () => {
 
-    return getAllDocuments();
+    return getDocumentSummaries();
 
   }
+);
+
+ipcMain.handle(
+  "get-document-detail",
+  async (_, documentId) =>
+    getDocumentDetail(
+      documentId
+    )
 );
 
 ipcMain.handle(
   "search-documents",
   async (_, query) => {
 
-    return searchDocuments(
+    return searchDocumentSummaries(
       query
     );
 

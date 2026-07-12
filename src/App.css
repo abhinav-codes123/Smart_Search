@@ -226,6 +226,64 @@ button:disabled {
   text-transform: capitalize;
 }
 
+.folder-section {
+  max-height: 430px;
+  overflow: auto;
+}
+
+.folder-tree {
+  display: grid;
+  gap: 5px;
+  margin-top: 10px;
+}
+
+.folder-tree .folder-tree {
+  margin: 5px 0 0 12px;
+  padding-left: 9px;
+  border-left: 1px solid var(--border);
+}
+
+.folder-button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  padding: 8px 9px;
+  text-align: left;
+}
+
+.folder-button:hover,
+.folder-button.active {
+  background: var(--panel-soft);
+  border-color: var(--border);
+}
+
+.folder-button.active {
+  color: var(--accent-dark);
+  font-weight: 800;
+}
+
+.folder-button span {
+  overflow-wrap: anywhere;
+}
+
+.folder-button strong {
+  flex: 0 0 auto;
+  min-width: 28px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 2px 7px;
+  font-size: .74rem;
+  text-align: center;
+}
+
 .activity-section {
   max-height: 430px;
   overflow: hidden;
@@ -644,6 +702,13 @@ button:disabled {
 .category-box {
   margin: 8px 0;
   font-weight: 800;
+}
+
+.organizer-review {
+  color: var(--warning);
+  font-size: .84rem;
+  font-weight: 700;
+  margin-top: 10px;
 }
 
 .warning-box {

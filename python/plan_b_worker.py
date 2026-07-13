@@ -211,7 +211,7 @@ def normalize_vectors(vectors):
     return vectors / norms[:, None]
 
 
-def build_vector_index(vectors, modules):
+def build_vector_index(vectors, modules, top_k=5):
     faiss_module = modules.get("faiss")
 
     if faiss_module is not None:
@@ -232,7 +232,7 @@ def build_vector_index(vectors, modules):
 
         normalized = normalize_vectors(vectors)
         index = NearestNeighbors(
-            n_neighbors=min(5, len(normalized)),
+            n_neighbors=min(top_k, len(normalized)),
             metric="cosine",
             algorithm="brute",
         )
@@ -250,7 +250,7 @@ def build_vector_index(vectors, modules):
         }
 
 
-def search_vector_index(index_info, query_vectors, documents):
+def search_vector_index(index_info, query_vectors, documents, top_k=5):
     if index_info["type"] == "none":
         return []
 
@@ -259,7 +259,7 @@ def search_vector_index(index_info, query_vectors, documents):
     if index_info["type"] == "faiss":
         scores, indices = index_info["index"].search(
             normalized_queries.astype("float32"),
-            min(5, len(documents)),
+            min(top_k, len(documents)),
         )
 
         return [
@@ -276,7 +276,7 @@ def search_vector_index(index_info, query_vectors, documents):
 
     distances, indices = index_info["index"].kneighbors(
         normalized_queries,
-        n_neighbors=min(5, len(documents)),
+        n_neighbors=min(top_k, len(documents)),
     )
 
     return [
@@ -377,6 +377,7 @@ def process_payload(payload, runtime, model_name, no_embeddings):
     queries = payload.get("queries", [])
     analyze_documents = payload.get("analyze", True)
     return_embeddings = payload.get("returnEmbeddings", False)
+    top_k = max(1, int(payload.get("topK", 5) or 5))
     timings = OrderedDict()
 
     if payload.get("includeStartupTimings"):
@@ -467,7 +468,7 @@ def process_payload(payload, runtime, model_name, no_embeddings):
                     per_doc[index]["embeddingDimensions"] = len(vector)
 
             index_started = now_ms()
-            index_info = build_vector_index(document_vectors, runtime.modules)
+            index_info = build_vector_index(document_vectors, runtime.modules, top_k)
             timings["vectorIndexBuildMs"] = round(now_ms() - index_started, 2)
 
             vector_info["enabled"] = index_info["type"] != "none"
@@ -487,6 +488,7 @@ def process_payload(payload, runtime, model_name, no_embeddings):
                     index_info,
                     query_vectors,
                     documents,
+                    top_k,
                 )
                 timings["queryEmbeddingSearchMs"] = round(now_ms() - query_started, 2)
                 vector_info["queries"] = [

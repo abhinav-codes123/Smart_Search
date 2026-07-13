@@ -42,6 +42,8 @@ const SEARCH_EXAMPLES = [
   "CPU cache",
   "stdio.h"
 ];
+const INITIAL_VISIBLE_RESULTS = 10;
+const SHOW_MORE_RESULTS_STEP = 10;
 
 const imageDataCache =
   new Map();
@@ -510,6 +512,10 @@ function App() {
     searchMode,
     setSearchMode
   ] = useState("fast");
+  const [
+    visibleResultLimit,
+    setVisibleResultLimit
+  ] = useState(INITIAL_VISIBLE_RESULTS);
 
   const virtualFolders =
     useMemo(
@@ -612,6 +618,37 @@ function App() {
         selectedFolderId
       ]
     );
+  const displayedResults =
+    useMemo(
+      () =>
+        visibleResults.slice(
+          0,
+          visibleResultLimit
+        ),
+      [
+        visibleResults,
+        visibleResultLimit
+      ]
+    );
+  const hasMoreResults =
+    visibleResults.length >
+    displayedResults.length;
+
+  useEffect(
+    () => {
+      setVisibleResultLimit(
+        INITIAL_VISIBLE_RESULTS
+      );
+    },
+    [
+      query,
+      searchMode,
+      typeFilter,
+      statusFilter,
+      categoryFilter,
+      selectedFolderId
+    ]
+  );
 
   function addActivity(event) {
     setActivity(prev => [
@@ -961,6 +998,9 @@ function App() {
       nextQuery.trim();
 
     setSearchState("searching");
+    setVisibleResultLimit(
+      INITIAL_VISIBLE_RESULTS
+    );
 
     if (!trimmed) {
       const docs =
@@ -1344,7 +1384,8 @@ function App() {
                 Results
               </h2>
               <p>
-                {visibleResults.length} shown from {results.length || documents.length} indexed files
+                {displayedResults.length} shown from {visibleResults.length} matching files
+                {results.length !== visibleResults.length ? ` (${results.length || documents.length} total indexed)` : ""}
                 {selectedFolder ? ` in ${selectedFolder.path}` : ""}
               </p>
             </div>
@@ -1365,7 +1406,7 @@ function App() {
               : (
                   <div className={viewMode === "grid" ? "grid-view" : "list-view"}>
                     {
-                      visibleResults.map(doc => (
+                      displayedResults.map(doc => (
                         <article
                           key={`${doc.documentId || doc.filePath}-${doc.filePath}`}
                           className={`result-card ${viewMode}`}
@@ -1444,6 +1485,26 @@ function App() {
                     }
                   </div>
                 )
+          }
+          {
+            hasMoreResults && (
+              <div className="show-more-row">
+                <button
+                  className="btn btn-secondary"
+                  onClick={() =>
+                    setVisibleResultLimit(limit =>
+                      limit +
+                      SHOW_MORE_RESULTS_STEP
+                    )
+                  }
+                >
+                  Show 10 more
+                </button>
+                <span>
+                  {visibleResults.length - displayedResults.length} more available
+                </span>
+              </div>
+            )
           }
         </section>
 

@@ -23,6 +23,8 @@ const PLAN_B_WORKER =
     "python",
     "plan_b_worker.py"
   );
+const DEFAULT_SEMANTIC_TOP_K =
+  Number(process.env.SMART_SEARCH_SEMANTIC_TOP_K || 30);
 
 let workerProcess = null;
 let workerReadyPromise = null;
@@ -477,6 +479,7 @@ async function sendPersistentRequest({
   embeddings = true,
   analyze = true,
   returnEmbeddings = false,
+  topK = 5,
   timeoutMs = DEFAULT_TIMEOUT_MS
 }) {
   await startPersistentWorker();
@@ -501,7 +504,8 @@ async function sendPersistentRequest({
       ),
     queries,
     analyze,
-    returnEmbeddings
+    returnEmbeddings,
+    topK
   };
 
   return new Promise((resolve, reject) => {
@@ -554,6 +558,7 @@ function runOneShotWorker({
   embeddings = true,
   analyze = true,
   returnEmbeddings = false,
+  topK = 5,
   timeoutMs = DEFAULT_TIMEOUT_MS
 }) {
   const availability =
@@ -574,7 +579,8 @@ function runOneShotWorker({
       ),
     queries,
     analyze,
-    returnEmbeddings
+    returnEmbeddings,
+    topK
   };
 
   const args = [
@@ -796,7 +802,9 @@ export async function enrichDocumentWithPlanB(document) {
       embeddings:
         true,
       returnEmbeddings:
-        true
+        true,
+      topK:
+        1
     });
   const planBDocument =
     output.documents?.[0];
@@ -832,7 +840,16 @@ export async function enrichDocumentWithPlanB(document) {
   };
 }
 
-export async function runPlanBSemanticSearch(query, documents) {
+export async function runPlanBSemanticSearch(
+  query,
+  documents,
+  options = {}
+) {
+  const topK =
+    Number(
+      options.topK ||
+      DEFAULT_SEMANTIC_TOP_K
+    );
   const candidates =
     documents.filter(document =>
       getPlanBText(document)
@@ -904,7 +921,11 @@ export async function runPlanBSemanticSearch(query, documents) {
       embeddings:
         true,
       analyze:
-        false
+        false,
+      topK:
+        Number.isFinite(topK) && topK > 0
+          ? topK
+          : DEFAULT_SEMANTIC_TOP_K
     });
 
   const results =

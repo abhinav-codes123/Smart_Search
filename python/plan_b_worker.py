@@ -65,6 +65,7 @@ def import_optional_modules():
         "sentence_transformers",
         "sklearn",
         "faiss",
+        "numpy",
     ]:
         try:
             modules[name] = __import__(name)
@@ -298,55 +299,111 @@ def combine_keywords(yake_keywords, spacy_signals):
     return dedupe_phrases(phrases, limit=24)
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--model",
-        default="sentence-transformers/all-MiniLM-L6-v2",
-    )
-    parser.add_argument(
-        "--no-embeddings",
-        action="store_true",
-    )
-    parser.add_argument(
-        "--input-file",
-        default=None,
-    )
-    parser.add_argument(
-        "--allow-model-download",
-        action="store_true",
-    )
-    args = parser.parse_args()
+class PlanBRuntime:
+    def __init__(self, allow_model_download=False):
+        self.allow_model_download = allow_model_download
+        self.timings = OrderedDict()
+        self.embedding_models = {}
 
-    configure_native_runtime()
-    configure_model_network(args.allow_model_download)
+        started = now_ms()
+        self.modules, self.import_errors = import_optional_modules()
+        self.timings["importsMs"] = round(now_ms() - started, 2)
 
-    payload = load_json_input(args.input_file)
+        setup_started = now_ms()
+        self.yake_extractor = make_yake_extractor(self.modules.get("yake"))
+        self.nlp = load_spacy(self.modules.get("spacy"))
+        self.timings["nlpSetupMs"] = round(now_ms() - setup_started, 2)
+
+    def get_embedding_model(self, model_name):
+        if model_name not in self.embedding_models:
+            model, error = load_embedding_model(
+                self.modules.get("sentence_transformers"),
+                model_name,
+                self.allow_model_download,
+            )
+
+            if model is None:
+                return None, error
+
+            self.embedding_models[model_name] = model
+
+        return self.embedding_models[model_name], None
+
+    def capabilities(self):
+        return {
+            "yake": self.modules.get("yake") is not None,
+            "spacy": self.modules.get("spacy") is not None,
+            "spacyPipeline": getattr(self.nlp, "pipe_names", []) if self.nlp else [],
+            "sentenceTransformers": self.modules.get("sentence_transformers") is not None,
+            "faiss": self.modules.get("faiss") is not None,
+            "sklearn": self.modules.get("sklearn") is not None,
+            "importErrors": self.import_errors,
+        }
+
+
+def coerce_cached_vectors(documents, modules):
+    numpy_module = modules.get("numpy")
+
+    if numpy_module is None or not documents:
+        return None
+
+    vectors = []
+    dimensions = None
+
+    for document in documents:
+        vector = document.get("embedding")
+
+        if not isinstance(vector, list) or not vector:
+            return None
+
+        if dimensions is None:
+            dimensions = len(vector)
+        elif len(vector) != dimensions:
+            return None
+
+        try:
+            vectors.append([float(value) for value in vector])
+        except Exception:
+            return None
+
+    try:
+        return numpy_module.array(vectors, dtype="float32")
+    except Exception:
+        return None
+
+
+def process_payload(payload, runtime, model_name, no_embeddings):
     documents = payload.get("documents", [])
     queries = payload.get("queries", [])
+    analyze_documents = payload.get("analyze", True)
+    return_embeddings = payload.get("returnEmbeddings", False)
     timings = OrderedDict()
 
-    started = now_ms()
-    modules, import_errors = import_optional_modules()
-    timings["importsMs"] = round(now_ms() - started, 2)
-
-    setup_started = now_ms()
-    yake_extractor = make_yake_extractor(modules.get("yake"))
-    nlp = load_spacy(modules.get("spacy"))
-    timings["nlpSetupMs"] = round(now_ms() - setup_started, 2)
+    if payload.get("includeStartupTimings"):
+        for key, value in runtime.timings.items():
+            timings[key] = value
 
     per_doc = []
     analyze_started = now_ms()
 
     for document in documents:
         text = document.get("text") or ""
-        yake_started = now_ms()
-        yake_keywords = extract_yake_keywords(yake_extractor, text)
-        yake_ms = now_ms() - yake_started
+        yake_keywords = []
+        spacy_signals = {
+            "entities": [],
+            "nounPhrases": [],
+        }
+        yake_ms = 0
+        spacy_ms = 0
 
-        spacy_started = now_ms()
-        spacy_signals = extract_spacy_signals(nlp, text)
-        spacy_ms = now_ms() - spacy_started
+        if analyze_documents:
+            yake_started = now_ms()
+            yake_keywords = extract_yake_keywords(runtime.yake_extractor, text)
+            yake_ms = now_ms() - yake_started
+
+            spacy_started = now_ms()
+            spacy_signals = extract_spacy_signals(runtime.nlp, text)
+            spacy_ms = now_ms() - spacy_started
 
         per_doc.append({
             "file": document.get("file"),
@@ -365,40 +422,52 @@ def main():
     vector_info = {
         "enabled": False,
         "backend": "none",
-        "model": args.model,
+        "model": model_name,
         "error": None,
         "queries": [],
     }
 
-    if not args.no_embeddings and documents:
+    if not no_embeddings and documents:
         embedding_started = now_ms()
-        model, model_error = load_embedding_model(
-            modules.get("sentence_transformers"),
-            args.model,
-            args.allow_model_download,
-        )
+        model, model_error = runtime.get_embedding_model(model_name)
         timings["embeddingModelLoadMs"] = round(now_ms() - embedding_started, 2)
 
         if model is None:
             vector_info["error"] = model_error
         else:
             encode_started = now_ms()
-            document_texts = [
-                (
-                    document.get("title") or document.get("file") or ""
-                ) + "\n" + (document.get("text") or "")[:4000]
-                for document in documents
-            ]
-            document_vectors = model.encode(
-                document_texts,
-                convert_to_numpy=True,
-                normalize_embeddings=False,
-                show_progress_bar=False,
-            )
+            document_vectors = coerce_cached_vectors(documents, runtime.modules)
+
+            if document_vectors is None:
+                document_texts = [
+                    (
+                        document.get("title") or document.get("file") or ""
+                    ) + "\n" + (document.get("text") or "")[:4000]
+                    for document in documents
+                ]
+                document_vectors = model.encode(
+                    document_texts,
+                    convert_to_numpy=True,
+                    normalize_embeddings=False,
+                    show_progress_bar=False,
+                )
+                timings["cachedDocumentEmbeddings"] = False
+            else:
+                timings["cachedDocumentEmbeddings"] = True
+
             timings["documentEmbeddingMs"] = round(now_ms() - encode_started, 2)
 
+            if return_embeddings:
+                for index, vector in enumerate(document_vectors):
+                    per_doc[index]["embedding"] = [
+                        round(float(value), 6)
+                        for value in vector.tolist()
+                    ]
+                    per_doc[index]["embeddingModel"] = model_name
+                    per_doc[index]["embeddingDimensions"] = len(vector)
+
             index_started = now_ms()
-            index_info = build_vector_index(document_vectors, modules)
+            index_info = build_vector_index(document_vectors, runtime.modules)
             timings["vectorIndexBuildMs"] = round(now_ms() - index_started, 2)
 
             vector_info["enabled"] = index_info["type"] != "none"
@@ -428,20 +497,107 @@ def main():
                     for query, results in zip(queries, query_results)
                 ]
 
-    output = {
-        "capabilities": {
-            "yake": modules.get("yake") is not None,
-            "spacy": modules.get("spacy") is not None,
-            "spacyPipeline": getattr(nlp, "pipe_names", []) if nlp else [],
-            "sentenceTransformers": modules.get("sentence_transformers") is not None,
-            "faiss": modules.get("faiss") is not None,
-            "sklearn": modules.get("sklearn") is not None,
-            "importErrors": import_errors,
-        },
+    return {
+        "capabilities": runtime.capabilities(),
+        "startupTimingMs": runtime.timings,
         "timingMs": timings,
         "documents": per_doc,
         "vectorSearch": vector_info,
     }
+
+
+def write_json_line(payload):
+    sys.stdout.write(json.dumps(payload, ensure_ascii=True) + "\n")
+    sys.stdout.flush()
+
+
+def run_server(args):
+    runtime = PlanBRuntime(args.allow_model_download)
+
+    write_json_line({
+        "type": "ready",
+        "capabilities": runtime.capabilities(),
+        "startupTimingMs": runtime.timings,
+    })
+
+    for line in sys.stdin:
+        if not line.strip():
+            continue
+
+        try:
+            request = json.loads(line)
+            request_id = request.get("id")
+
+            if request.get("command") == "shutdown":
+                write_json_line({
+                    "id": request_id,
+                    "ok": True,
+                    "type": "shutdown",
+                })
+                break
+
+            payload = request.get("payload") or {}
+            result = process_payload(
+                payload,
+                runtime,
+                request.get("model") or args.model,
+                bool(request.get("noEmbeddings", args.no_embeddings)),
+            )
+            write_json_line({
+                "id": request_id,
+                "ok": True,
+                "result": result,
+            })
+        except Exception as error:
+            write_json_line({
+                "id": locals().get("request_id", None),
+                "ok": False,
+                "error": str(error),
+            })
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--model",
+        default="sentence-transformers/all-MiniLM-L6-v2",
+    )
+    parser.add_argument(
+        "--no-embeddings",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--input-file",
+        default=None,
+    )
+    parser.add_argument(
+        "--allow-model-download",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--server",
+        action="store_true",
+    )
+    args = parser.parse_args()
+
+    configure_native_runtime()
+    configure_model_network(args.allow_model_download)
+
+    if args.server:
+        run_server(args)
+        return
+
+    payload = load_json_input(args.input_file)
+    runtime = PlanBRuntime(args.allow_model_download)
+    output = process_payload(
+        {
+            **payload,
+            "includeStartupTimings": True,
+        },
+        runtime,
+        args.model,
+        args.no_embeddings,
+    )
 
     print(json.dumps(output, ensure_ascii=True))
 

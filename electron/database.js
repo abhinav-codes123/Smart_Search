@@ -92,8 +92,11 @@ const EMPTY_JSON_DB = {
   jobs: []
 };
 const CLEAN_TEXT_VERSION = 8;
+const JSON_SNAPSHOT_ENABLED =
+  process.env.SMART_SEARCH_WRITE_JSON_SNAPSHOT === "1";
 
 let db;
+let jsonSnapshotSkipLogged = false;
 
 function now() {
 
@@ -137,6 +140,120 @@ function fromJson(value, fallback) {
   } catch {
     return fallback;
   }
+}
+
+function normalizeEmbeddingVector(vector) {
+
+  if (
+    !Array.isArray(vector) ||
+    vector.length === 0
+  ) {
+    return null;
+  }
+
+  const normalized =
+    vector
+      .map(value =>
+        Number(value)
+      )
+      .filter(value =>
+        Number.isFinite(value)
+      );
+
+  if (
+    normalized.length !== vector.length
+  ) {
+    return null;
+  }
+
+  return normalized.map(value =>
+    Math.round(value * 1000000) / 1000000
+  );
+}
+
+function rowToSemanticEmbedding(row) {
+
+  if (
+    !row?.embedding_json
+  ) {
+    return null;
+  }
+
+  const vector =
+    normalizeEmbeddingVector(
+      fromJson(
+        row.embedding_json,
+        []
+      )
+    );
+
+  if (!vector) {
+    return null;
+  }
+
+  return {
+    model:
+      row.embedding_model || null,
+    textFingerprint:
+      row.embedding_fingerprint || null,
+    dimensions:
+      row.embedding_dimensions ||
+      vector.length,
+    updatedAt:
+      row.embedding_updated_at || null,
+    vector
+  };
+}
+
+function normalizeEmbeddingForStorage(enrichment) {
+
+  const vector =
+    normalizeEmbeddingVector(
+      enrichment?.embedding?.vector ||
+      enrichment?.embedding
+    );
+
+  if (!vector) {
+    return null;
+  }
+
+  return {
+    model:
+      enrichment.embedding?.model ||
+      enrichment.model ||
+      "sentence-transformers/all-MiniLM-L6-v2",
+    textFingerprint:
+      enrichment.fingerprint || null,
+    dimensions:
+      enrichment.embedding?.dimensions ||
+      vector.length,
+    updatedAt:
+      now(),
+    vector
+  };
+}
+
+function summarizeSemanticEmbedding(embedding) {
+
+  if (!embedding) {
+    return null;
+  }
+
+  return {
+    model:
+      embedding.model,
+    textFingerprint:
+      embedding.textFingerprint,
+    dimensions:
+      embedding.dimensions,
+    updatedAt:
+      embedding.updatedAt,
+    hasVector:
+      Array.isArray(
+        embedding.vector
+      ) &&
+      embedding.vector.length > 0
+  };
 }
 
 function ensureDir(filePath) {
@@ -199,6 +316,11 @@ function createSchema(database) {
       raw_word_count INTEGER,
       clean_word_count INTEGER,
       noise_ratio REAL,
+      embedding_json TEXT,
+      embedding_model TEXT,
+      embedding_fingerprint TEXT,
+      embedding_dimensions INTEGER,
+      embedding_updated_at TEXT,
       total_pages INTEGER,
       indexed_pages INTEGER,
       status TEXT NOT NULL DEFAULT 'done',
@@ -344,6 +466,36 @@ function createSchema(database) {
     "documents",
     "noise_ratio",
     "REAL"
+  );
+  ensureColumn(
+    database,
+    "documents",
+    "embedding_json",
+    "TEXT"
+  );
+  ensureColumn(
+    database,
+    "documents",
+    "embedding_model",
+    "TEXT"
+  );
+  ensureColumn(
+    database,
+    "documents",
+    "embedding_fingerprint",
+    "TEXT"
+  );
+  ensureColumn(
+    database,
+    "documents",
+    "embedding_dimensions",
+    "INTEGER"
+  );
+  ensureColumn(
+    database,
+    "documents",
+    "embedding_updated_at",
+    "TEXT"
   );
   ensureColumn(
     database,
@@ -1015,6 +1167,10 @@ function rowToDocument(row) {
       row.clean_word_count,
     noiseRatio:
       row.noise_ratio,
+    semanticEmbedding:
+      rowToSemanticEmbedding(
+        row
+      ),
     totalPages:
       row.total_pages,
     indexedPages:
@@ -1636,6 +1792,10 @@ function summarizeDocument(
       document.category || "Unknown",
     metadata:
       document.metadata || {},
+    semanticEmbedding:
+      summarizeSemanticEmbedding(
+        document.semanticEmbedding
+      ),
     textQuality:
       document.textQuality,
     rawWordCount:
@@ -1688,6 +1848,10 @@ function summarizeSearchResult(document) {
       document.category || "Unknown",
     metadata:
       document.metadata || {},
+    semanticEmbedding:
+      summarizeSemanticEmbedding(
+        document.semanticEmbedding
+      ),
     textQuality:
       document.textQuality,
     rawWordCount:
@@ -1800,6 +1964,10 @@ function createJsonSnapshot(database) {
         document.category || "Unknown",
       metadata:
         document.metadata || {},
+      semanticEmbedding:
+        summarizeSemanticEmbedding(
+          document.semanticEmbedding
+        ),
       cleanText:
         documentPages.length === 0
           ? aggregateCleanText
@@ -1963,6 +2131,25 @@ function writeJsonSnapshot(database) {
 }
 
 function writeJsonSnapshotSafely(database) {
+
+  if (
+    !JSON_SNAPSHOT_ENABLED
+  ) {
+    if (
+      !jsonSnapshotSkipLogged
+    ) {
+      jsonSnapshotSkipLogged = true;
+      log.info(
+        "database.json.snapshot.disabled",
+        {
+          enableWith:
+            "SMART_SEARCH_WRITE_JSON_SNAPSHOT=1"
+        }
+      );
+    }
+
+    return;
+  }
 
   try {
     writeJsonSnapshot(
@@ -2635,6 +2822,10 @@ export function applyPlanBEnrichment(
             entity.text
           )
           .slice(0, 20);
+      const semanticEmbedding =
+        normalizeEmbeddingForStorage(
+          enrichment
+        );
 
       const nextTitleTags =
         dedupePlanBTags(
@@ -2680,35 +2871,80 @@ export function applyPlanBEnrichment(
           timingMs:
             enrichment.timingMs || {},
           wallMs:
-            enrichment.wallMs
+            enrichment.wallMs,
+          embedding:
+            summarizeSemanticEmbedding(
+              semanticEmbedding
+            )
         }
       };
 
-      database
-        .prepare(`
-          UPDATE documents
-          SET title_tags_json = ?,
-              keyword_tags_json = ?,
-              metadata_json = ?,
-              updated_at = ?
-          WHERE document_id = ?
-        `)
-        .run(
-          toJson(
-            nextTitleTags,
-            []
-          ),
-          toJson(
-            nextKeywordTags,
-            []
-          ),
-          toJson(
-            nextMetadata,
-            {}
-          ),
-          now(),
-          documentId
-        );
+      if (semanticEmbedding) {
+        database
+          .prepare(`
+            UPDATE documents
+            SET title_tags_json = ?,
+                keyword_tags_json = ?,
+                metadata_json = ?,
+                embedding_json = ?,
+                embedding_model = ?,
+                embedding_fingerprint = ?,
+                embedding_dimensions = ?,
+                embedding_updated_at = ?,
+                updated_at = ?
+            WHERE document_id = ?
+          `)
+          .run(
+            toJson(
+              nextTitleTags,
+              []
+            ),
+            toJson(
+              nextKeywordTags,
+              []
+            ),
+            toJson(
+              nextMetadata,
+              {}
+            ),
+            toJson(
+              semanticEmbedding.vector,
+              []
+            ),
+            semanticEmbedding.model,
+            semanticEmbedding.textFingerprint,
+            semanticEmbedding.dimensions,
+            semanticEmbedding.updatedAt,
+            now(),
+            documentId
+          );
+      } else {
+        database
+          .prepare(`
+            UPDATE documents
+            SET title_tags_json = ?,
+                keyword_tags_json = ?,
+                metadata_json = ?,
+                updated_at = ?
+            WHERE document_id = ?
+          `)
+          .run(
+            toJson(
+              nextTitleTags,
+              []
+            ),
+            toJson(
+              nextKeywordTags,
+              []
+            ),
+            toJson(
+              nextMetadata,
+              {}
+            ),
+            now(),
+            documentId
+          );
+      }
 
       syncDocumentOrganization(
         database,

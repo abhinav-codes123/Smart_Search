@@ -25,7 +25,9 @@ import {
   getPlanBText,
   getPlanBTextFingerprint,
   isPlanBEnabled,
-  runPlanBSemanticSearch
+  runPlanBSemanticSearch,
+  startPlanBWorker,
+  stopPlanBWorker
 } from "./planBService.js";
 import {
   extractFileForIndex,
@@ -60,10 +62,21 @@ function shouldEnrichWithPlanB(document) {
 
   const existingFingerprint =
     document.metadata?.planB?.textFingerprint;
-
-  return existingFingerprint !==
+  const existingEmbeddingFingerprint =
+    document.semanticEmbedding?.textFingerprint ||
+    document.metadata?.planB?.embedding?.textFingerprint;
+  const nextFingerprint =
     getPlanBTextFingerprint(
       document
+    );
+
+  return existingFingerprint !== nextFingerprint ||
+    existingEmbeddingFingerprint !== nextFingerprint ||
+    (
+      !document.semanticEmbedding?.hasVector &&
+      !Array.isArray(
+        document.semanticEmbedding?.vector
+      )
     );
 }
 
@@ -1101,4 +1114,23 @@ app.whenReady().then(() => {
     "app.ready"
   );
   createWindow();
+  startPlanBWorker()
+    .catch(error => {
+      log.warn(
+        "planb.worker.start.failed",
+        {
+          error:
+            error.message,
+          stack:
+            error.stack
+        }
+      );
+    });
 });
+
+app.on(
+  "before-quit",
+  () => {
+    stopPlanBWorker();
+  }
+);

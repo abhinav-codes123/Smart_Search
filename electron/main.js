@@ -9,6 +9,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 import {
   insertDocument,
+  applyPlanBEnrichment,
+  getAllDocuments,
   getDocumentByFileHash,
   getDocumentDetail,
   getDocumentSummaries,
@@ -18,6 +20,13 @@ import {
   failOcrJob,
   getOcrQueueStatus
 } from "./database.js";
+import {
+  enrichDocumentWithPlanB,
+  getPlanBText,
+  getPlanBTextFingerprint,
+  isPlanBEnabled,
+  runPlanBSemanticSearch
+} from "./planBService.js";
 import {
   extractFileForIndex,
   extractPdfPageText,
@@ -39,6 +48,261 @@ const __dirname = path.dirname(__filename);
 let ocrQueueRunning = false;
 const unavailableThumbnailPaths =
   new Set();
+
+function shouldEnrichWithPlanB(document) {
+
+  if (
+    !isPlanBEnabled() ||
+    !getPlanBText(document)
+  ) {
+    return false;
+  }
+
+  const existingFingerprint =
+    document.metadata?.planB?.textFingerprint;
+
+  return existingFingerprint !==
+    getPlanBTextFingerprint(
+      document
+    );
+}
+
+async function enrichSavedDocumentWithPlanB(savedDocument) {
+
+  if (
+    !shouldEnrichWithPlanB(
+      savedDocument
+    )
+  ) {
+    log.info(
+      "planb.enrich.skipped",
+      {
+        documentId:
+          savedDocument?.documentId,
+        reason:
+          !isPlanBEnabled()
+            ? "disabled"
+            : "already-enriched-or-empty"
+      }
+    );
+
+    return {
+      document:
+        savedDocument,
+      planB: {
+        status:
+          "skipped"
+      }
+    };
+  }
+
+  try {
+    const enrichment =
+      await enrichDocumentWithPlanB(
+        savedDocument
+      );
+
+    const enrichedDocument =
+      applyPlanBEnrichment(
+        savedDocument.documentId,
+        enrichment
+      ) ||
+      savedDocument;
+
+    log.info(
+      "planb.enrich.completed",
+      {
+        documentId:
+          savedDocument.documentId,
+        wallMs:
+          enrichment.wallMs,
+        yakeKeywords:
+          enrichment.yakeKeywords?.slice(0, 8)
+      }
+    );
+
+    return {
+      document:
+        enrichedDocument,
+      planB: {
+        status:
+          "done",
+        wallMs:
+          enrichment.wallMs,
+        timingMs:
+          enrichment.timingMs,
+        keywords:
+          enrichment.yakeKeywords?.slice(0, 10) || []
+      }
+    };
+  } catch (error) {
+    log.warn(
+      "planb.enrich.failed",
+      {
+        documentId:
+          savedDocument.documentId,
+        filePath:
+          savedDocument.filePath,
+        error:
+          error.message,
+        stack:
+          error.stack
+      }
+    );
+
+    return {
+      document:
+        savedDocument,
+      planB: {
+        status:
+          "failed",
+        error:
+          error.message
+      }
+    };
+  }
+}
+
+function summarizePlanBDocument(
+  document,
+  semantic
+) {
+
+  return {
+    documentId:
+      document.documentId,
+    fileHash:
+      document.fileHash,
+    filePath:
+      document.filePath ||
+      document.primaryPath,
+    fileName:
+      document.fileName,
+    titleTags:
+      document.titleTags || [],
+    keywordTags:
+      document.keywordTags || [],
+    category:
+      document.category || "Unknown",
+    metadata:
+      document.metadata || {},
+    textQuality:
+      document.textQuality,
+    rawWordCount:
+      document.rawWordCount,
+    cleanWordCount:
+      document.cleanWordCount,
+    noiseRatio:
+      document.noiseRatio,
+    totalPages:
+      document.totalPages,
+    indexedPages:
+      document.indexedPages,
+    status:
+      document.status || "done",
+    scannedAt:
+      document.scannedAt,
+    updatedAt:
+      document.updatedAt,
+    organization:
+      document.organization || null,
+    preview:
+      document.cleanText?.slice(0, 320) ||
+      document.text?.slice(0, 320) ||
+      document.titleTags?.join(" | ") ||
+      "",
+    score:
+      Math.round(
+        Number(semantic.planBScore || 0) * 10000
+      ) / 100,
+    planBScore:
+      semantic.planBScore,
+    planBBackend:
+      semantic.planBBackend,
+    hasFullText:
+      Boolean(
+        document.text ||
+        document.cleanText
+      )
+  };
+}
+
+async function searchDocumentSummariesWithPlanB(query) {
+
+  const lexicalResults =
+    searchDocumentSummaries(
+      query
+    );
+  const lexicalById =
+    new Map(
+      lexicalResults.map(document => [
+        document.documentId,
+        document
+      ])
+    );
+
+  try {
+    const semanticResults =
+      await runPlanBSemanticSearch(
+        query,
+        getAllDocuments()
+      );
+
+    for (
+      const semantic
+      of semanticResults
+    ) {
+      const existing =
+        lexicalById.get(
+          semantic.document.documentId
+        );
+
+      if (existing) {
+        existing.planBScore =
+          semantic.planBScore;
+        existing.planBBackend =
+          semantic.planBBackend;
+        existing.score =
+          Math.round(
+            (
+              Number(existing.score || 0) +
+              Number(semantic.planBScore || 0) * 100
+            ) * 100
+          ) / 100;
+        continue;
+      }
+
+      lexicalById.set(
+        semantic.document.documentId,
+        summarizePlanBDocument(
+          semantic.document,
+          semantic
+        )
+      );
+    }
+
+    return [
+      ...lexicalById.values()
+    ].sort(
+      (a, b) =>
+        Number(b.score || 0) -
+        Number(a.score || 0)
+    );
+  } catch (error) {
+    log.warn(
+      "planb.search.failed",
+      {
+        query,
+        error:
+          error.message,
+        stack:
+          error.stack
+      }
+    );
+
+    return lexicalResults;
+  }
+}
 
 function recordUnavailableThumbnail(
   imagePath,
@@ -614,24 +878,34 @@ ipcMain.handle(
         insertDocument(
           document
         );
+      const {
+        document:
+          enrichedDocument,
+        planB
+      } =
+        await enrichSavedDocumentWithPlanB(
+          savedDocument
+        );
 
       log.info(
         "document.saved",
         {
           documentId:
-            savedDocument.documentId,
+            enrichedDocument.documentId,
           fileHash:
-            savedDocument.fileHash,
+            enrichedDocument.fileHash,
           filePath:
-            savedDocument.filePath,
+            enrichedDocument.filePath,
           paths:
-            savedDocument.paths,
+            enrichedDocument.paths,
           indexedPages:
-            savedDocument.indexedPages,
+            enrichedDocument.indexedPages,
           totalPages:
-            savedDocument.totalPages,
+            enrichedDocument.totalPages,
           status:
-            savedDocument.status
+            enrichedDocument.status,
+          planB:
+            planB.status
         }
       );
 
@@ -652,7 +926,10 @@ ipcMain.handle(
       }
 
       return {
-        success: true
+        success: true,
+        document:
+          enrichedDocument,
+        planB
       };
 
     } catch (error) {
@@ -706,6 +983,14 @@ ipcMain.handle(
     );
 
   }
+);
+
+ipcMain.handle(
+  "search-documents-plan-b",
+  async (_, query) =>
+    searchDocumentSummariesWithPlanB(
+      query
+    )
 );
 
 ipcMain.handle(

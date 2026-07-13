@@ -2528,6 +2528,228 @@ function refreshSearchIndex(
   }
 }
 
+function cleanPlanBTag(value) {
+
+  return String(value || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^[\s\-_:;,.()[\]{}]+|[\s\-_:;,.()[\]{}]+$/g, "");
+}
+
+function dedupePlanBTags(tags, limit) {
+
+  const selected = [];
+  const seen =
+    new Set();
+
+  for (
+    const tag
+    of tags
+  ) {
+    const normalized =
+      cleanPlanBTag(
+        tag
+      );
+
+    if (
+      !normalized ||
+      seen.has(normalized)
+    ) {
+      continue;
+    }
+
+    seen.add(
+      normalized
+    );
+    selected.push(
+      normalized
+    );
+
+    if (
+      selected.length >= limit
+    ) {
+      break;
+    }
+  }
+
+  return selected;
+}
+
+export function applyPlanBEnrichment(
+  documentId,
+  enrichment
+) {
+
+  if (
+    !documentId ||
+    !enrichment
+  ) {
+    return null;
+  }
+
+  const savedDocument =
+    withTransaction(database => {
+      const row =
+        getDocumentRow(
+          database,
+          documentId
+        );
+
+      const document =
+        flattenDocument(
+          database,
+          row
+        );
+
+      if (!document) {
+        return null;
+      }
+
+      const planBYake =
+        dedupePlanBTags(
+          enrichment.yakeKeywords || [],
+          20
+        );
+      const planBCombined =
+        dedupePlanBTags(
+          enrichment.combinedKeywords || [],
+          24
+        );
+      const planBNounPhrases =
+        dedupePlanBTags(
+          enrichment.spacy?.nounPhrases || [],
+          16
+        );
+      const planBEntities =
+        (enrichment.spacy?.entities || [])
+          .map(entity => ({
+            text:
+              cleanPlanBTag(
+                entity.text
+              ),
+            label:
+              entity.label
+          }))
+          .filter(entity =>
+            entity.text
+          )
+          .slice(0, 20);
+
+      const nextTitleTags =
+        dedupePlanBTags(
+          [
+            ...(document.titleTags || []),
+            ...planBYake.slice(0, 4)
+          ],
+          14
+        );
+      const nextKeywordTags =
+        dedupePlanBTags(
+          [
+            ...planBYake,
+            ...(document.keywordTags || []),
+            ...planBNounPhrases.slice(0, 6)
+          ],
+          32
+        );
+      const nextMetadata = {
+        ...(document.metadata || {}),
+        planB: {
+          version:
+            1,
+          enrichedAt:
+            now(),
+          textFingerprint:
+            enrichment.fingerprint,
+          model:
+            enrichment.model ||
+            "yake-spacy",
+          keywordSource:
+            "yake",
+          yakeKeywords:
+            planBYake,
+          combinedKeywords:
+            planBCombined,
+          nounPhrases:
+            planBNounPhrases,
+          entities:
+            planBEntities,
+          capabilities:
+            enrichment.capabilities || {},
+          timingMs:
+            enrichment.timingMs || {},
+          wallMs:
+            enrichment.wallMs
+        }
+      };
+
+      database
+        .prepare(`
+          UPDATE documents
+          SET title_tags_json = ?,
+              keyword_tags_json = ?,
+              metadata_json = ?,
+              updated_at = ?
+          WHERE document_id = ?
+        `)
+        .run(
+          toJson(
+            nextTitleTags,
+            []
+          ),
+          toJson(
+            nextKeywordTags,
+            []
+          ),
+          toJson(
+            nextMetadata,
+            {}
+          ),
+          now(),
+          documentId
+        );
+
+      syncDocumentOrganization(
+        database,
+        documentId
+      );
+      refreshSearchIndex(
+        database,
+        documentId
+      );
+
+      return flattenDocument(
+        database,
+        getDocumentRow(
+          database,
+          documentId
+        )
+      );
+    });
+
+  writeJsonSnapshotSafely(
+    getDb()
+  );
+
+  if (savedDocument) {
+    log.info(
+      "planb.enrich.saved",
+      {
+        documentId,
+        titleTags:
+          savedDocument.titleTags?.slice(0, 6),
+        keywordTags:
+          savedDocument.keywordTags?.slice(0, 8),
+        wallMs:
+          enrichment.wallMs
+      }
+    );
+  }
+
+  return savedDocument;
+}
+
 function findExistingDocument(
   database,
   document

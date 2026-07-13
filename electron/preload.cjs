@@ -99,6 +99,12 @@ contextBridge.exposeInMainWorld(
           "search-documents",
           query
         ),
+    searchDocumentsPlanB:
+      (query) =>
+        ipcRenderer.invoke(
+          "search-documents-plan-b",
+          query
+        ),
     getOcrQueueStatus: () =>
       ipcRenderer.invoke(
         "get-ocr-queue-status"

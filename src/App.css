@@ -355,6 +355,17 @@ button:disabled {
   box-shadow: 0 0 0 3px rgba(37, 99, 235, .12);
 }
 
+.search-mode-select {
+  width: 112px;
+  height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 10px;
+  background: #ffffff;
+  color: var(--text);
+  font-weight: 700;
+}
+
 .btn {
   border: 1px solid transparent;
   border-radius: 8px;
@@ -765,6 +776,7 @@ button:disabled {
   .topbar-actions,
   .topbar-actions .btn,
   .search-row .btn,
+  .search-mode-select,
   .search-input {
     width: 100%;
   }

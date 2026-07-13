@@ -506,6 +506,10 @@ function App() {
     searchState,
     setSearchState
   ] = useState("idle");
+  const [
+    searchMode,
+    setSearchMode
+  ] = useState("fast");
 
   const virtualFolders =
     useMemo(
@@ -695,6 +699,12 @@ function App() {
               "document.extract.skipped-duplicate",
               "database.document.duplicate-hit",
               "document.extract.failed",
+              "planb.enrich.start",
+              "planb.enrich.completed",
+              "planb.enrich.failed",
+              "planb.search.start",
+              "planb.search.completed",
+              "planb.search.failed",
               "database.job.queued",
               "ocr.job.failed",
               "ocr.job.completed"
@@ -708,6 +718,7 @@ function App() {
               detail:
                 entry.details?.filePath ||
                 entry.details?.documentId ||
+                entry.details?.query ||
                 entry.details?.error ||
                 ""
             });
@@ -856,11 +867,28 @@ function App() {
         processedDocs.push(
           saved?.success === false
             ? document
-            : {
+            : saved?.document ||
+              {
                 ...document,
                 ...(saved || {})
               }
         );
+
+        if (saved?.planB?.status === "done") {
+          addActivity({
+            level: "info",
+            title: "Plan B enriched",
+            detail:
+              `${file.name}: ${(saved.planB.keywords || []).slice(0, 3).join(", ")}`
+          });
+        } else if (saved?.planB?.status === "failed") {
+          addActivity({
+            level: "warn",
+            title: "Plan B failed",
+            detail:
+              `${file.name}: ${saved.planB.error}`
+          });
+        }
 
         addActivity({
           level: "info",
@@ -945,10 +973,15 @@ function App() {
 
     const docs =
       (
-        await window
-        .electronAPI
-        .searchDocuments(
-          trimmed
+        await (
+          searchMode === "planB" &&
+          window.electronAPI.searchDocumentsPlanB
+            ? window.electronAPI.searchDocumentsPlanB(
+                trimmed
+              )
+            : window.electronAPI.searchDocuments(
+                trimmed
+              )
         )
       ).map(
         hydrateDocument
@@ -1159,6 +1192,22 @@ function App() {
                 placeholder="Search: t-test, BCS303, banker algorithm, CPU cache"
                 className="search-input"
               />
+
+              <select
+                className="search-mode-select"
+                value={searchMode}
+                onChange={event =>
+                  setSearchMode(event.target.value)
+                }
+                aria-label="Search mode"
+              >
+                <option value="fast">
+                  Fast
+                </option>
+                <option value="planB">
+                  Plan B
+                </option>
+              </select>
 
               {
                 query && (
@@ -1378,6 +1427,13 @@ function App() {
                                 doc.score != null && (
                                   <span>
                                     score {doc.score}
+                                  </span>
+                                )
+                              }
+                              {
+                                doc.planBScore != null && (
+                                  <span>
+                                    Plan B {doc.planBScore}
                                   </span>
                                 )
                               }

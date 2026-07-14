@@ -50,6 +50,12 @@ contextBridge.exposeInMainWorld(
           "get-image-data",
           imagePath
         ),
+    getFilePreviewData:
+      (filePath) =>
+        ipcRenderer.invoke(
+          "get-file-preview-data",
+          filePath
+        ),
 
     selectFiles: () =>
       ipcRenderer.invoke(
@@ -87,11 +93,34 @@ contextBridge.exposeInMainWorld(
       ipcRenderer.invoke(
         "get-documents"
       ),
+    getDatabaseInfo: () =>
+      ipcRenderer.invoke(
+        "get-database-info"
+      ),
     getDocumentDetail:
       (documentId) =>
         ipcRenderer.invoke(
           "get-document-detail",
           documentId
+        ),
+    getFolderKeywords:
+      (folderId) =>
+        ipcRenderer.invoke(
+          "get-folder-keywords",
+          folderId
+        ),
+    saveFolderKeyword:
+      (payload) =>
+        ipcRenderer.invoke(
+          "save-folder-keyword",
+          payload
+        ),
+    deleteFolderKeyword:
+      (folderId, keyword) =>
+        ipcRenderer.invoke(
+          "delete-folder-keyword",
+          folderId,
+          keyword
         ),
     searchDocuments:
       (query) =>

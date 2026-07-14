@@ -615,13 +615,14 @@ function mergeOcrText(chunks) {
 
 async function renderPdfPageToImage(
   page,
-  outputPath
+  outputPath,
+  scale = PDF_RENDER_SCALE
 ) {
 
   const viewport =
     page.getViewport({
       scale:
-        PDF_RENDER_SCALE
+        scale
     });
 
   const canvas =
@@ -654,6 +655,46 @@ async function renderPdfPageToImage(
     outputPath,
     await canvas.encode("png")
   );
+}
+
+async function renderPdfPageToPngBuffer(
+  page,
+  scale
+) {
+
+  const viewport =
+    page.getViewport({
+      scale
+    });
+
+  const canvas =
+    createCanvas(
+      Math.ceil(
+        viewport.width
+      ),
+      Math.ceil(
+        viewport.height
+      )
+    );
+
+  const context =
+    canvas.getContext("2d");
+
+  context.fillStyle = "#ffffff";
+  context.fillRect(
+    0,
+    0,
+    canvas.width,
+    canvas.height
+  );
+
+  await page.render({
+    canvasContext:
+      context,
+    viewport
+  }).promise;
+
+  return canvas.encode("png");
 }
 
 async function loadPdfDocument(filePath) {
@@ -1283,6 +1324,58 @@ function extractPlainText(filePath) {
   return normalizeWhitespace(
     buffer.toString("utf8")
   );
+}
+
+function getImageMimeType(extension) {
+  if (
+    extension === ".jpg" ||
+    extension === ".jpeg"
+  ) {
+    return "image/jpeg";
+  }
+
+  if (extension === ".svg") {
+    return "image/svg+xml";
+  }
+
+  return `image/${extension.replace(".", "")}`;
+}
+
+export async function createFilePreviewDataUrl(filePath) {
+
+  const extension =
+    path
+      .extname(filePath)
+      .toLowerCase();
+
+  if (
+    IMAGE_EXTENSIONS.has(
+      extension
+    )
+  ) {
+    const buffer =
+      fs.readFileSync(filePath);
+
+    return `data:${getImageMimeType(extension)};base64,${buffer.toString("base64")}`;
+  }
+
+  if (extension === ".pdf") {
+    const pdf =
+      await loadPdfDocument(
+        filePath
+      );
+    const page =
+      await pdf.getPage(1);
+    const buffer =
+      await renderPdfPageToPngBuffer(
+        page,
+        0.32
+      );
+
+    return `data:image/png;base64,${Buffer.from(buffer).toString("base64")}`;
+  }
+
+  return null;
 }
 
 export async function extractTextFromFile(filePath) {

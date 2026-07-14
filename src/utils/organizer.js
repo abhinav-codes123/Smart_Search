@@ -1,3 +1,5 @@
+export const ORGANIZER_VERSION = 3;
+
 const FILE_TYPE_FOLDERS = {
   ".bmp": "images",
   ".csv": "spreadsheets",
@@ -35,63 +37,174 @@ export const VIRTUAL_FOLDER_TREE = [
     source: "system"
   },
   {
-    id: "computer-science",
-    name: "Computer Science",
+    id: "exam-papers",
+    name: "Exam Papers",
     source: "system",
     children: [
       {
-        id: "cs-operating-systems",
-        name: "Operating Systems",
+        id: "exam-papers-jee",
+        name: "JEE",
         source: "system"
       },
       {
-        id: "cs-theory-of-computation",
+        id: "exam-papers-university",
+        name: "University",
+        source: "system"
+      },
+      {
+        id: "exam-papers-computer-science",
+        name: "Computer Science",
+        source: "system"
+      },
+      {
+        id: "exam-papers-mathematics",
+        name: "Mathematics",
+        source: "system"
+      },
+      {
+        id: "exam-papers-physical-education",
+        name: "Physical Education",
+        source: "system"
+      },
+      {
+        id: "exam-papers-engineering",
+        name: "Engineering",
+        source: "system"
+      },
+      {
+        id: "exam-papers-other",
+        name: "Other Exam Papers",
+        source: "system"
+      }
+    ]
+  },
+  {
+    id: "assignments",
+    name: "Assignments",
+    source: "system",
+    children: [
+      {
+        id: "assignments-computer-science",
+        name: "Computer Science",
+        source: "system"
+      },
+      {
+        id: "assignments-python",
+        name: "Python",
+        source: "system"
+      },
+      {
+        id: "assignments-mathematics",
+        name: "Mathematics",
+        source: "system"
+      },
+      {
+        id: "assignments-engineering",
+        name: "Engineering",
+        source: "system"
+      },
+      {
+        id: "assignments-other",
+        name: "Other Assignments",
+        source: "system"
+      }
+    ]
+  },
+  {
+    id: "lab-manuals",
+    name: "Lab Manuals",
+    source: "system",
+    children: [
+      {
+        id: "lab-manuals-computer-science",
+        name: "Computer Science",
+        source: "system"
+      },
+      {
+        id: "lab-manuals-computer-organization",
+        name: "Computer Organization",
+        source: "system"
+      },
+      {
+        id: "lab-manuals-engineering",
+        name: "Engineering",
+        source: "system"
+      },
+      {
+        id: "lab-manuals-other",
+        name: "Other Lab Manuals",
+        source: "system"
+      }
+    ]
+  },
+  {
+    id: "notes-books",
+    name: "Notes & Books",
+    source: "system",
+    children: [
+      {
+        id: "notes-computer-science",
+        name: "Computer Science",
+        source: "system"
+      },
+      {
+        id: "notes-theory-of-computation",
         name: "Theory of Computation",
         source: "system"
       },
       {
-        id: "cs-algorithms",
-        name: "Algorithms",
+        id: "notes-computer-organization",
+        name: "Computer Organization",
         source: "system"
       },
       {
-        id: "cs-programming",
-        name: "Programming",
+        id: "notes-mathematics",
+        name: "Mathematics",
         source: "system"
       },
       {
-        id: "cs-cyber-security",
-        name: "Cyber Security",
+        id: "notes-physical-education",
+        name: "Physical Education",
         source: "system"
       },
       {
-        id: "cs-databases",
-        name: "Databases",
+        id: "notes-english",
+        name: "English",
+        source: "system"
+      },
+      {
+        id: "notes-engineering",
+        name: "Engineering",
+        source: "system"
+      },
+      {
+        id: "notes-other",
+        name: "Other Notes",
         source: "system"
       }
     ]
   },
   {
-    id: "mathematics",
-    name: "Mathematics",
+    id: "academic-records",
+    name: "Academic Records",
     source: "system",
     children: [
       {
-        id: "math-statistics",
-        name: "Statistics",
+        id: "academic-records-marksheets",
+        name: "Marksheets & Results",
         source: "system"
       },
       {
-        id: "math-discrete-mathematics",
-        name: "Discrete Mathematics",
+        id: "academic-records-applications",
+        name: "Applications & Admissions",
+        source: "system"
+      },
+      {
+        id: "academic-records-toppers",
+        name: "Toppers Lists",
         source: "system"
       }
     ]
-  },
-  {
-    id: "blockchain",
-    name: "Blockchain",
-    source: "system"
   },
   {
     id: "certificates",
@@ -99,9 +212,31 @@ export const VIRTUAL_FOLDER_TREE = [
     source: "system"
   },
   {
-    id: "student-records",
-    name: "Student Records",
+    id: "career-interview",
+    name: "Career & Interview",
     source: "system"
+  },
+  {
+    id: "code-projects",
+    name: "Code & Projects",
+    source: "system",
+    children: [
+      {
+        id: "code-android",
+        name: "Android",
+        source: "system"
+      },
+      {
+        id: "code-web",
+        name: "Web",
+        source: "system"
+      },
+      {
+        id: "code-programming",
+        name: "Programming",
+        source: "system"
+      }
+    ]
   },
   {
     id: "medical",
@@ -109,33 +244,13 @@ export const VIRTUAL_FOLDER_TREE = [
     source: "system"
   },
   {
-    id: "business-documents",
-    name: "Business Documents",
-    source: "system"
-  },
-  {
-    id: "course-learning",
-    name: "Course Learning",
-    source: "system"
-  },
-  {
-    id: "assignments",
-    name: "Assignments",
-    source: "system"
-  },
-  {
-    id: "notes",
-    name: "Notes",
+    id: "images",
+    name: "Images",
     source: "system"
   },
   {
     id: "documents",
     name: "Documents",
-    source: "system"
-  },
-  {
-    id: "images",
-    name: "Images",
     source: "system"
   },
   {
@@ -149,327 +264,334 @@ export const VIRTUAL_FOLDER_TREE = [
     source: "system"
   },
   {
-    id: "code",
-    name: "Code",
-    source: "system"
-  },
-  {
     id: "other",
     name: "Other",
     source: "system"
   }
 ];
 
-const RULES = [
+const TYPE_RULES = [
   {
-    folderId: "certificates",
-    label: "certificate evidence",
-    baseWeight: 5,
-    minSignalWeight: 4,
+    type: "certificate",
+    label: "certificate",
+    minScore: 7,
     terms: [
-      ["certificate", 4],
-      ["certificate of completion", 6],
-      ["certification", 4],
-      ["awarded", 2],
-      ["completion", 2],
-      ["participation", 2],
-      ["participant", 1],
-      ["congratulations", 3],
-      ["verify certificate", 4],
-      ["certificate id", 4]
+      ["certificate of completion", 10],
+      ["certificate", 8],
+      ["certification", 6],
+      ["awarded", 4],
+      ["participation", 4],
+      ["verify certificate", 5],
+      ["certificate id", 6]
     ]
   },
   {
-    folderId: "student-records",
-    label: "student record evidence",
-    baseWeight: 4,
-    minSignalWeight: 6,
+    type: "academic-record",
+    label: "academic record",
+    minScore: 8,
     terms: [
-      ["student", 3],
+      ["marksheet", 10],
+      ["mark sheet", 10],
+      ["result", 6],
+      ["toppers", 8],
+      ["subject toppers", 10],
+      ["application form", 8],
+      ["admission", 5],
+      ["counselling", 5],
+      ["roll no", 5],
+      ["student id", 4],
+      ["marks obtained", 6],
+      ["guardian", 3]
+    ]
+  },
+  {
+    type: "assignment",
+    label: "assignment",
+    minScore: 6,
+    terms: [
+      ["assignment", 10],
+      ["homework", 8],
+      ["submit", 4],
+      ["submission", 4],
+      ["deadline", 5],
+      ["rubric", 5]
+    ]
+  },
+  {
+    type: "lab-manual",
+    label: "lab manual",
+    minScore: 7,
+    terms: [
+      ["lab manual", 10],
+      ["laboratory manual", 10],
+      ["experiment", 6],
+      ["experiment no", 8],
+      ["practical", 5],
+      ["procedure", 3],
+      ["observation", 3]
+    ]
+  },
+  {
+    type: "exam-paper",
+    label: "exam paper",
+    minScore: 7,
+    terms: [
+      ["question paper", 10],
+      ["paper code", 8],
+      ["paper", 5],
+      ["pyq", 9],
+      ["pyqs", 9],
+      ["previous year", 6],
+      ["solutions", 6],
+      ["exam", 5],
+      ["examination", 6],
+      ["semester", 5],
+      ["maximum marks", 7],
+      ["attempt any", 6],
+      ["section", 2]
+    ]
+  },
+  {
+    type: "career",
+    label: "career/interview",
+    minScore: 7,
+    terms: [
+      ["interview questions", 10],
+      ["interview", 7],
+      ["resume", 7],
+      ["assessment center", 8],
+      ["assessmentcenterreport", 10],
+      ["candidate", 4],
+      ["job", 4],
+      ["communication skills", 4]
+    ]
+  },
+  {
+    type: "medical",
+    label: "medical",
+    minScore: 7,
+    terms: [
+      ["patient", 8],
+      ["prescription", 9],
+      ["medicine", 6],
+      ["tablet", 5],
+      ["dosage", 6],
+      ["laboratory test report", 8],
+      ["hemoglobin", 7],
+      ["leucocyte", 7]
+    ]
+  },
+  {
+    type: "code-project",
+    label: "code/project",
+    minScore: 6,
+    terms: [
+      ["#include", 10],
+      ["public static void", 10],
+      ["doctype html", 8],
+      ["android", 6],
+      ["gradle", 7],
+      ["junit", 6],
+      ["source code", 8],
+      ["function", 3],
       ["class", 2],
-      ["section", 2],
-      ["subject", 2],
-      ["teacher", 2],
-      ["report", 3],
-      ["report card", 5],
-      ["term", 2],
-      ["marks", 3],
-      ["grade", 3],
-      ["satisfactory", 2],
-      ["outstanding", 2],
-      ["mathematics", 1],
-      ["computer", 1]
+      ["import", 2]
     ]
   },
   {
-    folderId: "medical",
-    label: "medical document evidence",
-    baseWeight: 5,
-    minSignalWeight: 5,
+    type: "notes-book",
+    label: "notes/book",
+    minScore: 7,
     terms: [
-      ["patient", 4],
-      ["prescription", 5],
-      ["dosage", 4],
-      ["dose", 3],
-      ["tablet", 4],
-      ["medicine", 4],
-      ["route", 2],
-      ["duration", 2],
-      ["meals", 2],
-      ["daily", 1],
-      ["days", 1],
-      ["hemoglobin", 5]
+      ["notes", 9],
+      ["chapter", 7],
+      ["unit", 4],
+      ["lecture", 7],
+      ["book", 6],
+      ["grammar", 6],
+      ["definition", 4],
+      ["advantages", 3],
+      ["features", 3],
+      ["cbseguide", 7]
+    ]
+  }
+];
+
+const SUBJECT_RULES = [
+  {
+    subject: "jee",
+    label: "JEE",
+    terms: [
+      ["jee", 10],
+      ["iit", 5],
+      ["nta", 5],
+      ["xii pass", 6],
+      ["xii", 3]
     ]
   },
   {
-    folderId: "business-documents",
-    label: "business document evidence",
-    baseWeight: 4,
-    minSignalWeight: 6,
+    subject: "python",
+    label: "Python",
     terms: [
-      ["business", 3],
-      ["techsolutions", 5],
-      ["development", 2],
-      ["module", 2],
-      ["description", 2],
-      ["address", 2],
-      ["client", 3],
-      ["invoice", 5],
-      ["proposal", 4],
-      ["technical point", 3],
-      ["state condition", 3]
+      ["python", 10],
+      ["list", 2],
+      ["tuple", 3],
+      ["dictionary", 3]
     ]
   },
   {
-    folderId: "course-learning",
-    label: "course or learning evidence",
-    baseWeight: 3,
-    minSignalWeight: 5,
+    subject: "android",
+    label: "Android",
     terms: [
-      ["course", 2],
-      ["learning", 3],
-      ["completed", 2],
-      ["completion", 2],
-      ["activity", 2],
-      ["lesson", 3],
-      ["training", 3],
-      ["workshop", 3]
+      ["android", 10],
+      ["kotlin", 8],
+      ["gradle", 7],
+      ["junit", 5],
+      ["resizer", 4]
     ]
   },
   {
-    folderId: "blockchain",
-    label: "blockchain topic",
-    baseWeight: 4,
-    minSignalWeight: 3,
+    subject: "web",
+    label: "Web",
     terms: [
-      ["blockchain", 4],
-      ["ethereum", 4],
-      ["smart contract", 4],
-      ["solidity", 4],
-      ["web3", 3],
-      ["crypto", 2],
-      ["ledger", 2]
+      ["html", 8],
+      ["css", 8],
+      ["javascript", 7],
+      ["frontend", 8],
+      ["react", 7]
     ]
   },
   {
-    folderId: "cs-operating-systems",
-    label: "operating system concepts",
-    baseWeight: 5,
-    minSignalWeight: 5,
+    subject: "algorithms",
+    label: "Algorithms/DSA",
     terms: [
-      ["operating system", 5],
-      ["operating systems", 5],
-      ["deadlock", 4],
-      ["banker algorithm", 5],
-      ["safe state", 3],
-      ["memory hierarchy", 4],
-      ["cache memory", 4],
-      ["cpu cache", 4],
-      ["paging", 3],
-      ["segmentation", 3],
-      ["semaphore", 3],
-      ["process scheduling", 4],
-      ["page replacement", 4],
-      ["allocation matrix", 4],
-      ["available vector", 3],
-      ["cs4411", 5]
+      ["algorithm", 8],
+      ["data structure", 8],
+      ["dsa", 9],
+      ["leetcode", 8],
+      ["postfix", 7],
+      ["stack", 5],
+      ["queue", 4],
+      ["tree", 4],
+      ["graph", 4]
     ]
   },
   {
-    folderId: "cs-theory-of-computation",
-    label: "automata and turing machine concepts",
-    baseWeight: 5,
-    minSignalWeight: 5,
+    subject: "operating-systems",
+    label: "Operating Systems",
     terms: [
-      ["turing", 3],
-      ["turing machine", 6],
-      ["finite control", 4],
-      ["automata", 4],
-      ["automaton", 4],
-      ["grammar", 3],
-      ["regular language", 4],
-      ["context free", 4],
-      ["pushdown automata", 5],
-      ["tape", 2],
-      ["read write head", 5]
+      ["operating system", 10],
+      ["deadlock", 8],
+      ["banker algorithm", 8],
+      ["paging", 6],
+      ["semaphore", 6],
+      ["process scheduling", 7]
     ]
   },
   {
-    folderId: "cs-algorithms",
-    label: "algorithm and data structure concepts",
-    baseWeight: 4,
-    minSignalWeight: 5,
+    subject: "theory-of-computation",
+    label: "Theory of Computation",
     terms: [
-      ["algorithm", 3],
-      ["data structure", 5],
-      ["postfix", 5],
-      ["infix", 4],
-      ["expression evaluation", 5],
-      ["stack", 3],
-      ["queue", 2],
-      ["tree traversal", 4],
-      ["graph", 2],
-      ["sorting", 3],
-      ["complexity", 3],
-      ["recursion", 3]
+      ["turing machine", 10],
+      ["turing", 6],
+      ["automata", 8],
+      ["finite control", 8],
+      ["grammar", 5],
+      ["regular language", 6],
+      ["read write head", 8]
     ]
   },
   {
-    folderId: "cs-programming",
-    label: "programming identifiers",
-    baseWeight: 4,
-    minSignalWeight: 5,
+    subject: "computer-organization",
+    label: "Computer Organization",
     terms: [
-      ["stdio.h", 5],
-      ["ctype.h", 5],
-      ["#include", 5],
-      ["printf", 4],
-      ["scanf", 4],
-      ["function", 2],
-      ["program", 2],
-      ["source code", 5],
-      ["compiler", 3],
-      ["javascript", 4],
-      ["python", 4],
-      ["java program", 4],
-      ["c program", 4]
+      ["computer organization", 10],
+      ["coa", 9],
+      ["architecture", 5],
+      ["microprocessor", 7],
+      ["cpu", 5],
+      ["memory hierarchy", 6]
     ]
   },
   {
-    folderId: "cs-cyber-security",
-    label: "security and vulnerability concepts",
-    baseWeight: 5,
-    minSignalWeight: 5,
+    subject: "mathematics",
+    label: "Mathematics",
     terms: [
-      ["file inclusion", 6],
-      ["dvwa", 5],
-      ["vulnerability", 4],
-      ["path traversal", 5],
-      ["sql injection", 5],
-      ["xss", 4],
-      ["csrf", 4],
-      ["burp", 4],
-      ["payload", 3],
-      ["exploit", 4],
-      ["authentication bypass", 5],
-      ["upload vulnerability", 5]
+      ["mathematics", 9],
+      ["maths", 9],
+      ["calculus", 7],
+      ["statistics", 8],
+      ["differential", 6],
+      ["integral", 6],
+      ["bas102", 7],
+      ["bas 102", 7],
+      ["bas202", 7],
+      ["bas 202", 7],
+      ["bas403", 7],
+      ["bas 403", 7]
     ]
   },
   {
-    folderId: "cs-databases",
-    label: "database concepts",
-    baseWeight: 4,
-    minSignalWeight: 5,
+    subject: "physical-education",
+    label: "Physical Education",
     terms: [
-      ["database", 3],
-      ["dbms", 5],
-      ["sql", 3],
-      ["normalization", 4],
-      ["transaction", 3],
-      ["query", 2],
-      ["primary key", 4],
-      ["foreign key", 4],
-      ["relational model", 4],
-      ["schema", 3]
+      ["physical education", 10],
+      ["sports", 7],
+      ["yoga", 7],
+      ["asana", 7],
+      ["tournament", 6],
+      ["cbseguide", 5]
     ]
   },
   {
-    folderId: "math-statistics",
-    label: "statistics concepts",
-    baseWeight: 5,
-    minSignalWeight: 5,
+    subject: "english",
+    label: "English",
     terms: [
-      ["statistics", 4],
-      ["statistical", 4],
-      ["sampling theory", 5],
-      ["test of significance", 5],
-      ["t-test", 5],
-      ["standard deviation", 4],
-      ["population mean", 4],
-      ["sample mean", 4],
-      ["hypothesis", 3],
-      ["confidence interval", 4],
-      ["n < 30", 4],
-      ["chi square", 4]
+      ["english", 9],
+      ["grammar", 8],
+      ["noun", 5],
+      ["verb", 5],
+      ["sentence", 5]
     ]
   },
   {
-    folderId: "math-discrete-mathematics",
-    label: "discrete mathematics concepts",
-    baseWeight: 4,
-    minSignalWeight: 5,
+    subject: "engineering",
+    label: "Engineering",
     terms: [
-      ["discrete mathematics", 5],
-      ["graph theory", 4],
-      ["set theory", 4],
-      ["relation", 2],
-      ["function", 1],
-      ["truth table", 4],
-      ["proposition", 3],
-      ["combinatorics", 4],
-      ["permutation", 3],
-      ["recurrence", 3]
+      ["engineering", 6],
+      ["sensor", 7],
+      ["instrumentation", 7],
+      ["mechatronics", 7],
+      ["mechanical", 5],
+      ["electronics", 5],
+      ["bme101", 8],
+      ["bve301", 8],
+      ["bve 301", 8]
     ]
   },
   {
-    folderId: "assignments",
-    label: "assignment or question paper signals",
-    baseWeight: 4,
-    minSignalWeight: 5,
+    subject: "computer-science",
+    label: "Computer Science",
     terms: [
-      ["assignment", 4],
-      ["homework", 4],
-      ["question paper", 5],
-      ["lab manual", 4],
-      ["practical", 3],
-      ["submit", 2],
-      ["deadline", 3],
-      ["marks", 2],
-      ["rubric", 3],
-      ["bcs303", 5],
-      ["bas302", 5],
-      ["assignment04", 5]
+      ["computer science", 8],
+      ["bcs", 7],
+      ["bcs303", 8],
+      ["bcs 303", 8],
+      ["bcs402", 8],
+      ["bcs 402", 8],
+      ["programming", 5],
+      ["database", 5]
     ]
   },
   {
-    folderId: "notes",
-    label: "notes or chapter signals",
-    baseWeight: 3,
-    minSignalWeight: 5,
+    subject: "admissions",
+    label: "Admissions",
     terms: [
-      ["notes", 5],
-      ["chapter", 3],
-      ["unit", 1],
-      ["unit 1", 3],
-      ["unit 2", 3],
-      ["unit 3", 3],
-      ["unit 4", 3],
-      ["unit 5", 3],
-      ["lecture", 4],
-      ["topic", 2],
-      ["definition", 3],
-      ["advantages", 2],
-      ["features", 2]
+      ["admission", 8],
+      ["application form", 8],
+      ["uptac", 8],
+      ["counselling", 7],
+      ["seat", 4]
     ]
   }
 ];
@@ -495,8 +617,106 @@ const CODE_EXTENSIONS =
     ".sql",
     ".swift",
     ".ts",
-    ".tsx"
+    ".tsx",
+    ".xml"
   ]);
+
+const SUBJECT_FOLDER_IDS = {
+  "exam-paper": {
+    jee: "exam-papers-jee",
+    "computer-science": "exam-papers-computer-science",
+    algorithms: "exam-papers-computer-science",
+    "operating-systems": "exam-papers-computer-science",
+    "theory-of-computation": "exam-papers-computer-science",
+    "computer-organization": "exam-papers-computer-science",
+    mathematics: "exam-papers-mathematics",
+    "physical-education": "exam-papers-physical-education",
+    engineering: "exam-papers-engineering"
+  },
+  assignment: {
+    python: "assignments-python",
+    "computer-science": "assignments-computer-science",
+    algorithms: "assignments-computer-science",
+    "operating-systems": "assignments-computer-science",
+    "theory-of-computation": "assignments-computer-science",
+    "computer-organization": "assignments-computer-science",
+    mathematics: "assignments-mathematics",
+    engineering: "assignments-engineering",
+    jee: "assignments-other"
+  },
+  "lab-manual": {
+    "computer-organization": "lab-manuals-computer-organization",
+    "computer-science": "lab-manuals-computer-science",
+    algorithms: "lab-manuals-computer-science",
+    python: "lab-manuals-computer-science",
+    android: "lab-manuals-computer-science",
+    engineering: "lab-manuals-engineering"
+  },
+  "notes-book": {
+    "theory-of-computation": "notes-theory-of-computation",
+    "computer-organization": "notes-computer-organization",
+    "computer-science": "notes-computer-science",
+    algorithms: "notes-computer-science",
+    "operating-systems": "notes-computer-science",
+    python: "notes-computer-science",
+    mathematics: "notes-mathematics",
+    "physical-education": "notes-physical-education",
+    english: "notes-english",
+    engineering: "notes-engineering",
+    jee: "notes-other"
+  },
+  "code-project": {
+    android: "code-android",
+    web: "code-web",
+    python: "code-programming",
+    "computer-science": "code-programming",
+    algorithms: "code-programming"
+  }
+};
+
+const TYPE_DEFAULT_FOLDER = {
+  "exam-paper": "exam-papers-university",
+  assignment: "assignments-other",
+  "lab-manual": "lab-manuals-other",
+  "notes-book": "notes-other",
+  certificate: "certificates",
+  "academic-record": "academic-records",
+  career: "career-interview",
+  medical: "medical",
+  "code-project": "code-projects"
+};
+
+const RECORD_SUBFOLDER_TERMS = [
+  {
+    folderId: "academic-records-marksheets",
+    terms: [
+      "marksheet",
+      "mark sheet",
+      "result",
+      "marks obtained",
+      "internal marks",
+      "consolidated internal marks"
+    ]
+  },
+  {
+    folderId: "academic-records-applications",
+    terms: [
+      "application form",
+      "applicationform",
+      "admission",
+      "uptac",
+      "counselling"
+    ]
+  },
+  {
+    folderId: "academic-records-toppers",
+    terms: [
+      "toppers",
+      "subject toppers",
+      "rank"
+    ]
+  }
+];
 
 const FLAT_FOLDERS =
   flattenVirtualFolders(
@@ -556,6 +776,15 @@ function collectDocumentText(document) {
     .join("\n");
 }
 
+function collectFilenameText(document) {
+  return [
+    document?.fileName,
+    document?.filePath
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 function hasTerm(normalized, compact, term) {
   const normalizedTerm =
     normalizeText(term);
@@ -573,7 +802,7 @@ function hasTerm(normalized, compact, term) {
   }
 
   if (
-    /^[a-z]+\d+$/i.test(term)
+    /^[a-z]+\s*\d+$/i.test(term)
   ) {
     return compact.includes(
       normalizedTerm.replace(/\s+/g, "")
@@ -581,6 +810,118 @@ function hasTerm(normalized, compact, term) {
   }
 
   return false;
+}
+
+function getTermValue(term) {
+  if (
+    Array.isArray(term)
+  ) {
+    return {
+      text:
+        term[0],
+      weight:
+        term[1] ?? 1
+    };
+  }
+
+  return {
+    text:
+      term,
+    weight:
+      1
+  };
+}
+
+function scoreRule(rule, source, filenameSource) {
+  let score = 0;
+  const matched = [];
+  const normalized =
+    normalizeText(
+      source
+    );
+  const compact =
+    compactText(
+      source
+    );
+  const filenameNormalized =
+    normalizeText(
+      filenameSource
+    );
+  const filenameCompact =
+    compactText(
+      filenameSource
+    );
+
+  for (
+    const term
+    of rule.terms
+  ) {
+    const termValue =
+      getTermValue(
+        term
+      );
+
+    if (
+      hasTerm(
+        filenameNormalized,
+        filenameCompact,
+        termValue.text
+      )
+    ) {
+      score +=
+        termValue.weight * 1.8;
+      matched.push(
+        termValue.text
+      );
+      continue;
+    }
+
+    if (
+      hasTerm(
+        normalized,
+        compact,
+        termValue.text
+      )
+    ) {
+      score +=
+        termValue.weight;
+      matched.push(
+        termValue.text
+      );
+    }
+  }
+
+  return {
+    score,
+    matched
+  };
+}
+
+function detectBest(rules, sourceText, filenameText) {
+  const ranked =
+    rules
+      .map(rule => ({
+        ...rule,
+        ...scoreRule(
+          rule,
+          sourceText,
+          filenameText
+        )
+      }))
+      .filter(result =>
+        result.score >=
+        (result.minScore || 1)
+      )
+      .sort(
+        (a, b) =>
+          b.score - a.score
+      );
+
+  return {
+    best:
+      ranked[0] || null,
+    ranked
+  };
 }
 
 function addScore(scores, folderId, amount, reason) {
@@ -605,24 +946,153 @@ function addScore(scores, folderId, amount, reason) {
   );
 }
 
-function getTermValue(term) {
-  if (
-    Array.isArray(term)
+function unique(values) {
+  return [
+    ...new Set(
+      values.filter(Boolean)
+    )
+  ];
+}
+
+function chooseAcademicRecordFolder(sourceText) {
+  const normalized =
+    normalizeText(
+      sourceText
+    );
+  const compact =
+    compactText(
+      sourceText
+    );
+
+  for (
+    const option
+    of RECORD_SUBFOLDER_TERMS
   ) {
-    return {
-      text:
-        term[0],
-      weight:
-        term[1] ?? 1
-    };
+    if (
+      option.terms.some(term =>
+        hasTerm(
+          normalized,
+          compact,
+          term
+        )
+      )
+    ) {
+      return option.folderId;
+    }
   }
 
-  return {
-    text:
-      term,
-    weight:
-      1
-  };
+  return "academic-records";
+}
+
+function getPrimaryFolderFor(type, subject, sourceText) {
+  if (
+    type === "academic-record"
+  ) {
+    return chooseAcademicRecordFolder(
+      sourceText
+    );
+  }
+
+  const subjectFolder =
+    SUBJECT_FOLDER_IDS[type]?.[subject];
+
+  return subjectFolder ||
+    TYPE_DEFAULT_FOLDER[type] ||
+    "other";
+}
+
+function normalizeFolderKeywordOverrides(overrides) {
+  if (
+    !overrides
+  ) {
+    return [];
+  }
+
+  const list =
+    Array.isArray(overrides)
+      ? overrides
+      : Object.values(overrides).flat();
+
+  return list
+    .map(item => ({
+      folderId:
+        item.folderId ||
+        item.folder_id,
+      keyword:
+        normalizeText(
+          item.keyword
+        ),
+      role:
+        item.role || "positive",
+      weight:
+        Number(item.weight || 1)
+    }))
+    .filter(item =>
+      item.folderId &&
+      item.keyword &&
+      [
+        "positive",
+        "negative",
+        "ignored"
+      ].includes(item.role)
+    );
+}
+
+function applyFolderKeywordOverrides(scores, overrides, sourceText) {
+  const normalized =
+    normalizeText(
+      sourceText
+    );
+  const compact =
+    compactText(
+      sourceText
+    );
+
+  for (
+    const override
+    of normalizeFolderKeywordOverrides(
+      overrides
+    )
+  ) {
+    if (
+      !hasTerm(
+        normalized,
+        compact,
+        override.keyword
+      )
+    ) {
+      continue;
+    }
+
+    const weight =
+      Math.max(
+        0.5,
+        Math.min(
+          3,
+          override.weight
+        )
+      );
+
+    if (
+      override.role === "positive"
+    ) {
+      addScore(
+        scores,
+        override.folderId,
+        12 * weight,
+        `user positive keyword: ${override.keyword}`
+      );
+    } else if (
+      override.role === "negative"
+    ) {
+      addScore(
+        scores,
+        override.folderId,
+        -14 * weight,
+        `user negative keyword: ${override.keyword}`
+      );
+    }
+  }
 }
 
 function getConfidence(topScore, secondScore, document) {
@@ -631,21 +1101,21 @@ function getConfidence(topScore, secondScore, document) {
   }
 
   let confidence =
-    0.35 +
+    0.38 +
     Math.min(
       topScore,
-      18
-    ) / 28;
+      32
+    ) / 48;
 
   if (
     secondScore > 0
   ) {
     confidence -=
       Math.min(
-        0.18,
+        0.2,
         secondScore /
           (topScore + secondScore) *
-          0.25
+          0.28
       );
   }
 
@@ -664,7 +1134,7 @@ function getConfidence(topScore, secondScore, document) {
   );
 }
 
-function isReviewNeeded(document, confidence, topScore) {
+function isReviewNeeded(document, confidence, topScore, type) {
   const textQuality =
     Number(document?.textQuality ?? 100);
   const wordCount =
@@ -676,26 +1146,19 @@ function isReviewNeeded(document, confidence, topScore) {
 
   return Boolean(
     document?.status === "failed" ||
-    confidence < 0.58 ||
-    topScore < 8 ||
+    type === "unknown" ||
+    confidence < 0.55 ||
+    topScore < 7 ||
     (
       textQuality < 35 &&
       topScore < 18
     ) ||
     (
       wordCount > 0 &&
-      wordCount < 12 &&
+      wordCount < 10 &&
       topScore < 12
     )
   );
-}
-
-function unique(values) {
-  return [
-    ...new Set(
-      values.filter(Boolean)
-    )
-  ];
 }
 
 export function flattenVirtualFolders(
@@ -795,88 +1258,94 @@ export function getDefaultVirtualFolders() {
   }));
 }
 
-export function suggestOrganization(document = {}) {
+export function suggestOrganization(document = {}, options = {}) {
   const scores =
     new Map();
   const sourceText =
     collectDocumentText(
       document
     );
-  const normalized =
-    normalizeText(
-      sourceText
-    );
-  const compact =
-    compactText(
-      sourceText
+  const filenameText =
+    collectFilenameText(
+      document
     );
   const extension =
     getExtension(
       document.filePath ||
       document.fileName
     );
-
-  for (
-    const rule
-    of RULES
-  ) {
-    let matched = 0;
-    let signalWeight = 0;
-
-    for (
-      const term
-      of rule.terms
-    ) {
-      const termValue =
-        getTermValue(
-          term
-        );
-
-      if (
-        hasTerm(
-          normalized,
-          compact,
-          termValue.text
-        )
-      ) {
-        matched += 1;
-        signalWeight +=
-          termValue.weight;
-      }
-    }
-
-    if (
-      matched > 0 &&
-      signalWeight >=
-        (rule.minSignalWeight || 1)
-    ) {
-      addScore(
-        scores,
-        rule.folderId,
-        (rule.baseWeight || 0) +
-          signalWeight,
-        `${rule.label}: ${matched} signal${matched === 1 ? "" : "s"}, weight ${signalWeight}`
-      );
-    }
-  }
+  const typeResult =
+    detectBest(
+      TYPE_RULES,
+      sourceText,
+      filenameText
+    );
+  const subjectResult =
+    detectBest(
+      SUBJECT_RULES,
+      sourceText,
+      filenameText
+    );
+  const type =
+    typeResult.best?.type ||
+    (
+      CODE_EXTENSIONS.has(extension)
+        ? "code-project"
+        : "unknown"
+    );
+  const subject =
+    subjectResult.best?.subject ||
+    "general";
+  const primaryCandidateFolderId =
+    getPrimaryFolderFor(
+      type,
+      subject,
+      sourceText
+    );
+  const typeScore =
+    typeResult.best?.score ||
+    (
+      type === "code-project"
+        ? 8
+        : 0
+    );
+  const subjectScore =
+    subjectResult.best?.score || 0;
+  const primaryScore =
+    typeScore +
+    Math.min(
+      subjectScore,
+      14
+    );
 
   if (
-    CODE_EXTENSIONS.has(extension)
+    primaryCandidateFolderId !== "other" &&
+    primaryScore > 0
   ) {
     addScore(
       scores,
-      "code",
-      7,
-      "source code file extension"
+      primaryCandidateFolderId,
+      primaryScore,
+      `${typeResult.best?.label || "file type"}${subjectResult.best ? ` + ${subjectResult.best.label}` : ""}`
     );
-  } else if (
-    FILE_TYPE_FOLDERS[extension]
+  }
+
+  for (
+    const candidate
+    of typeResult.ranked.slice(1, 4)
   ) {
+    const folderId =
+      getPrimaryFolderFor(
+        candidate.type,
+        subject,
+        sourceText
+      );
+
     addScore(
       scores,
-      FILE_TYPE_FOLDERS[extension],
-      1.5,
-      `${extension} file type`
+      folderId,
+      candidate.score * 0.65,
+      `secondary type signal: ${candidate.label}`
     );
   }
 
@@ -888,8 +1357,8 @@ export function suggestOrganization(document = {}) {
       Certificate: "certificates",
       Identity: "documents",
       Medical: "medical",
-      Resume: "documents",
-      Technical: "business-documents"
+      Resume: "career-interview",
+      Technical: "code-projects"
     };
 
     if (
@@ -905,6 +1374,37 @@ export function suggestOrganization(document = {}) {
       );
     }
   }
+
+  if (
+    CODE_EXTENSIONS.has(extension)
+  ) {
+    addScore(
+      scores,
+      getPrimaryFolderFor(
+        "code-project",
+        subject,
+        sourceText
+      ),
+      7,
+      "source code file extension"
+    );
+  } else if (
+    FILE_TYPE_FOLDERS[extension] &&
+    scores.size === 0
+  ) {
+    addScore(
+      scores,
+      FILE_TYPE_FOLDERS[extension],
+      1.5,
+      `${extension} file type`
+    );
+  }
+
+  applyFolderKeywordOverrides(
+    scores,
+    options.folderKeywordOverrides,
+    sourceText
+  );
 
   const ranked =
     [...scores.entries()]
@@ -950,7 +1450,8 @@ export function suggestOrganization(document = {}) {
     isReviewNeeded(
       document,
       confidence,
-      top.score
+      top.score,
+      type
     );
   const primary =
     needsReview
@@ -969,20 +1470,18 @@ export function suggestOrganization(document = {}) {
             ]
         }
       : top;
-
   const secondaryFolderIds =
     ranked
       .filter(item =>
         item.folderId !== primary.folderId
       )
       .filter(item =>
-        item.score >= 8
+        item.score >= 7
       )
       .slice(0, 5)
       .map(item =>
         item.folderId
       );
-
   const folderIds =
     unique([
       primary.folderId,
@@ -1028,6 +1527,9 @@ export function suggestOrganization(document = {}) {
         confidence * 100
       ) / 100,
     needsReview,
+    documentType:
+      type,
+    subject,
     reason:
       primary.reasons.slice(0, 3),
     alternatives:
@@ -1085,6 +1587,8 @@ export function getOrganizationSearchText(document = {}) {
 
   return [
     organization.primaryFolderPath,
+    organization.documentType,
+    organization.subject,
     ...(organization.secondaryFolderPaths || []),
     ...(organization.folderIds || [])
       .map(folderId =>

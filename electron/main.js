@@ -14,11 +14,15 @@ import {
   getDocumentByFileHash,
   getDocumentDetail,
   getDocumentSummaries,
+  getFolderKeywordOverrides,
+  saveFolderKeywordOverride,
+  deleteFolderKeywordOverride,
   searchDocumentSummaries,
   claimNextOcrJob,
   completeOcrJob,
   failOcrJob,
-  getOcrQueueStatus
+  getOcrQueueStatus,
+  getDatabaseInfo
 } from "./database.js";
 import {
   enrichDocumentWithPlanB,
@@ -30,6 +34,7 @@ import {
   stopPlanBWorker
 } from "./planBService.js";
 import {
+  createFilePreviewDataUrl,
   extractFileForIndex,
   extractPdfPageText,
   SUPPORTED_EXTENSIONS
@@ -700,6 +705,24 @@ ipcMain.handle(
   }
 );
 
+ipcMain.handle(
+  "get-file-preview-data",
+  async (_, filePath) => {
+    try {
+      return await createFilePreviewDataUrl(
+        filePath
+      );
+    } catch (error) {
+      recordUnavailableThumbnail(
+        filePath,
+        error
+      );
+
+      return null;
+    }
+  }
+);
+
 ipcMain.handle("select-image", async () => {
   const result = await dialog.showOpenDialog({
     properties: ["openFile"],
@@ -980,11 +1003,88 @@ ipcMain.handle(
 );
 
 ipcMain.handle(
+  "get-database-info",
+  async () =>
+    getDatabaseInfo()
+);
+
+ipcMain.handle(
   "get-document-detail",
   async (_, documentId) =>
     getDocumentDetail(
       documentId
     )
+);
+
+ipcMain.handle(
+  "get-folder-keywords",
+  async (_, folderId) =>
+    getFolderKeywordOverrides(
+      folderId
+    )
+);
+
+ipcMain.handle(
+  "save-folder-keyword",
+  async (_, payload) => {
+    try {
+      return {
+        success: true,
+        ...saveFolderKeywordOverride(
+          payload
+        )
+      };
+    } catch (error) {
+      log.error(
+        "organizer.folder-keyword.save-failed",
+        {
+          folderId:
+            payload?.folderId,
+          keyword:
+            payload?.keyword,
+          error:
+            error.message
+        }
+      );
+
+      return {
+        success: false,
+        error:
+          error.message
+      };
+    }
+  }
+);
+
+ipcMain.handle(
+  "delete-folder-keyword",
+  async (_, folderId, keyword) => {
+    try {
+      return {
+        success: true,
+        ...deleteFolderKeywordOverride(
+          folderId,
+          keyword
+        )
+      };
+    } catch (error) {
+      log.error(
+        "organizer.folder-keyword.delete-failed",
+        {
+          folderId,
+          keyword,
+          error:
+            error.message
+        }
+      );
+
+      return {
+        success: false,
+        error:
+          error.message
+      };
+    }
+  }
 );
 
 ipcMain.handle(

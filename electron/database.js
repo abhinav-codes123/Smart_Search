@@ -20,6 +20,7 @@ import {
   buildTextQuality
 } from "./textQuality.js";
 import {
+  ORGANIZER_VERSION,
   getDefaultVirtualFolders,
   getOrganizationSearchText,
   getVirtualFolderAncestors,
@@ -89,6 +90,7 @@ const EMPTY_JSON_DB = {
   pages: [],
   virtual_folders: [],
   document_virtual_folders: [],
+  folder_keyword_overrides: [],
   jobs: []
 };
 const CLEAN_TEXT_VERSION = 8;
@@ -97,6 +99,12 @@ const JSON_SNAPSHOT_ENABLED =
 
 let db;
 let jsonSnapshotSkipLogged = false;
+
+function getFileSize(filePath) {
+  return fs.existsSync(filePath)
+    ? fs.statSync(filePath).size
+    : 0;
+}
 
 function now() {
 
@@ -288,6 +296,7 @@ function getDb() {
   createSchema(db);
   migrateJsonIfNeeded(db);
   backfillMissingCleanText(db);
+  backfillOrganizerVersion(db);
   writeJsonSnapshotSafely(db);
 
   return db;
@@ -400,6 +409,8 @@ function createSchema(database) {
       folder_id TEXT NOT NULL,
       confidence REAL NOT NULL DEFAULT 0,
       reason_json TEXT NOT NULL DEFAULT '[]',
+      document_type TEXT,
+      subject TEXT,
       is_primary INTEGER NOT NULL DEFAULT 0,
       source TEXT NOT NULL DEFAULT 'auto',
       updated_at TEXT NOT NULL,
@@ -407,6 +418,19 @@ function createSchema(database) {
       FOREIGN KEY (document_id)
         REFERENCES documents(document_id)
         ON DELETE CASCADE,
+      FOREIGN KEY (folder_id)
+        REFERENCES virtual_folders(folder_id)
+        ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS folder_keyword_overrides (
+      folder_id TEXT NOT NULL,
+      keyword TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'positive',
+      weight REAL NOT NULL DEFAULT 1,
+      source TEXT NOT NULL DEFAULT 'user',
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (folder_id, keyword),
       FOREIGN KEY (folder_id)
         REFERENCES virtual_folders(folder_id)
         ON DELETE CASCADE
@@ -431,6 +455,9 @@ function createSchema(database) {
 
     CREATE INDEX IF NOT EXISTS idx_document_virtual_folders_folder
       ON document_virtual_folders(folder_id, is_primary, confidence);
+
+    CREATE INDEX IF NOT EXISTS idx_folder_keyword_overrides_folder
+      ON folder_keyword_overrides(folder_id, role);
   `);
 
   ensureDefaultVirtualFolders(
@@ -526,6 +553,18 @@ function createSchema(database) {
     "pages",
     "noise_ratio",
     "REAL"
+  );
+  ensureColumn(
+    database,
+    "document_virtual_folders",
+    "document_type",
+    "TEXT"
+  );
+  ensureColumn(
+    database,
+    "document_virtual_folders",
+    "subject",
+    "TEXT"
   );
 }
 
@@ -737,6 +776,74 @@ function backfillMissingCleanText(database) {
       }
     );
   }
+}
+
+function backfillOrganizerVersion(database) {
+
+  const versionRow =
+    database
+      .prepare(
+        "SELECT value FROM app_metadata WHERE key = 'organizer_version'"
+      )
+      .get();
+
+  if (
+    Number(versionRow?.value || 0) ===
+    ORGANIZER_VERSION
+  ) {
+    return;
+  }
+
+  const rows =
+    database
+      .prepare(
+        "SELECT document_id FROM documents ORDER BY updated_at DESC, file_name ASC"
+      )
+      .all();
+
+  database.exec("BEGIN IMMEDIATE");
+
+  try {
+    for (
+      const row
+      of rows
+    ) {
+      syncDocumentOrganization(
+        database,
+        row.document_id
+      );
+      refreshSearchIndex(
+        database,
+        row.document_id
+      );
+    }
+
+    database
+      .prepare(`
+        INSERT INTO app_metadata (key, value)
+        VALUES ('organizer_version', ?)
+        ON CONFLICT(key) DO UPDATE SET
+          value = excluded.value
+      `)
+      .run(
+        String(ORGANIZER_VERSION)
+      );
+
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
+
+  log.info(
+    "organizer.version.backfilled",
+    {
+      organizerVersion:
+        ORGANIZER_VERSION,
+      documents:
+        rows.length
+    }
+  );
 }
 
 function withTransaction(callback) {
@@ -1376,6 +1483,8 @@ function getDocumentVirtualFoldersForSnapshot(database) {
         folder_id,
         confidence,
         reason_json,
+        document_type,
+        subject,
         is_primary,
         source,
         updated_at
@@ -1395,6 +1504,10 @@ function getDocumentVirtualFoldersForSnapshot(database) {
           row.reason_json,
           []
         ),
+      documentType:
+        row.document_type || null,
+      subject:
+        row.subject || null,
       isPrimary:
         Boolean(row.is_primary),
       source:
@@ -1402,6 +1515,50 @@ function getDocumentVirtualFoldersForSnapshot(database) {
       updatedAt:
         row.updated_at
     }));
+}
+
+function rowToFolderKeywordOverride(row) {
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    folderId:
+      row.folder_id,
+    keyword:
+      row.keyword,
+    role:
+      row.role,
+    weight:
+      row.weight,
+    source:
+      row.source,
+    updatedAt:
+      row.updated_at
+  };
+}
+
+function getFolderKeywordOverridesForSnapshot(database) {
+
+  return database
+    .prepare(`
+      SELECT *
+      FROM folder_keyword_overrides
+      ORDER BY folder_id, role, keyword
+    `)
+    .all()
+    .map(
+      rowToFolderKeywordOverride
+    )
+    .filter(Boolean);
+}
+
+function getAllFolderKeywordOverrides(database) {
+
+  return getFolderKeywordOverridesForSnapshot(
+    database
+  );
 }
 
 function getOrganizationForDocument(database, documentId) {
@@ -1414,6 +1571,8 @@ function getOrganizationForDocument(database, documentId) {
           document_virtual_folders.folder_id,
           document_virtual_folders.confidence,
           document_virtual_folders.reason_json,
+          document_virtual_folders.document_type,
+          document_virtual_folders.subject,
           document_virtual_folders.is_primary,
           document_virtual_folders.source,
           virtual_folders.name,
@@ -1482,6 +1641,10 @@ function getOrganizationForDocument(database, documentId) {
       Math.round(
         Number(primary.confidence || 0) * 100
       ) / 100,
+    documentType:
+      primary.document_type || null,
+    subject:
+      primary.subject || null,
     needsReview:
       folderIds.includes(
         "review-needed"
@@ -1503,6 +1666,10 @@ function getOrganizationForDocument(database, documentId) {
           Boolean(row.is_primary),
         confidence:
           row.confidence,
+        documentType:
+          row.document_type || null,
+        subject:
+          row.subject || null,
         source:
           row.source
       }))
@@ -1554,6 +1721,10 @@ function normalizeOrganizationForStorage(organization) {
       Number(
         organization?.confidence || 0
       ),
+    documentType:
+      organization?.documentType || null,
+    subject:
+      organization?.subject || null,
     reason:
       Array.isArray(
         organization?.reason
@@ -1595,11 +1766,13 @@ function upsertDocumentOrganization(
           folder_id,
           confidence,
           reason_json,
+          document_type,
+          subject,
           is_primary,
           source,
           updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         documentId,
@@ -1611,6 +1784,12 @@ function upsertDocumentOrganization(
           normalized.reason,
           []
         ),
+        folderId === normalized.primaryFolderId
+          ? normalized.documentType
+          : null,
+        folderId === normalized.primaryFolderId
+          ? normalized.subject
+          : null,
         folderId === normalized.primaryFolderId
           ? 1
           : 0,
@@ -2079,6 +2258,10 @@ function createJsonSnapshot(database) {
       ),
     document_virtual_folders:
       getDocumentVirtualFoldersForSnapshot(
+        database
+      ),
+    folder_keyword_overrides:
+      getFolderKeywordOverridesForSnapshot(
         database
       ),
     pages,
@@ -2575,11 +2758,19 @@ function syncDocumentOrganization(
       row
     );
   const organization =
-    suggestOrganization({
-      ...document,
-      organization:
-        undefined
-    });
+    suggestOrganization(
+      {
+        ...document,
+        organization:
+          undefined
+      },
+      {
+        folderKeywordOverrides:
+          getAllFolderKeywordOverrides(
+            database
+          )
+      }
+    );
   const saved =
     upsertDocumentOrganization(
       database,
@@ -3346,6 +3537,274 @@ export function refreshAllDocumentOrganizations() {
   };
 }
 
+function normalizeFolderKeyword(keyword) {
+
+  return String(keyword || "")
+    .toLowerCase()
+    .replace(/[#/\\_-]+/g, " ")
+    .replace(/[^a-z0-9.<>\s]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function escapeLikePattern(value) {
+
+  return String(value)
+    .replace(/\\/g, "\\\\")
+    .replace(/%/g, "\\%")
+    .replace(/_/g, "\\_");
+}
+
+function refreshOrganizationsForKeyword(database, keyword) {
+
+  const normalizedKeyword =
+    normalizeFolderKeyword(
+      keyword
+    );
+
+  if (
+    !normalizedKeyword
+  ) {
+    return {
+      documents: 0
+    };
+  }
+
+  const likePattern =
+    `%${escapeLikePattern(normalizedKeyword)}%`;
+  const rows =
+    database
+      .prepare(`
+        SELECT document_id
+        FROM documents
+        WHERE lower(file_name) LIKE ? ESCAPE '\\'
+           OR lower(primary_path) LIKE ? ESCAPE '\\'
+           OR lower(title_tags_json) LIKE ? ESCAPE '\\'
+           OR lower(keyword_tags_json) LIKE ? ESCAPE '\\'
+           OR lower(metadata_json) LIKE ? ESCAPE '\\'
+           OR lower(clean_text) LIKE ? ESCAPE '\\'
+           OR lower(text) LIKE ? ESCAPE '\\'
+      `)
+      .all(
+        likePattern,
+        likePattern,
+        likePattern,
+        likePattern,
+        likePattern,
+        likePattern,
+        likePattern
+      );
+
+  for (
+    const row
+    of rows
+  ) {
+    syncDocumentOrganization(
+      database,
+      row.document_id
+    );
+    refreshSearchIndex(
+      database,
+      row.document_id
+    );
+  }
+
+  return {
+    documents:
+      rows.length
+  };
+}
+
+export function getFolderKeywordOverrides(folderId = null) {
+
+  const database =
+    getDb();
+  const rows =
+    folderId
+      ? database
+          .prepare(`
+            SELECT *
+            FROM folder_keyword_overrides
+            WHERE folder_id = ?
+            ORDER BY role, keyword
+          `)
+          .all(
+            folderId
+          )
+      : database
+          .prepare(`
+            SELECT *
+            FROM folder_keyword_overrides
+            ORDER BY folder_id, role, keyword
+          `)
+          .all();
+
+  return rows
+    .map(
+      rowToFolderKeywordOverride
+    )
+    .filter(Boolean);
+}
+
+export function saveFolderKeywordOverride({
+  folderId,
+  keyword,
+  role = "positive",
+  weight = 1
+} = {}) {
+
+  const normalizedKeyword =
+    normalizeFolderKeyword(
+      keyword
+    );
+  const normalizedRole =
+    [
+      "positive",
+      "negative",
+      "ignored"
+    ].includes(role)
+      ? role
+      : "positive";
+
+  if (
+    !getVirtualFolderById(folderId)
+  ) {
+    throw new Error(
+      "Unknown folder"
+    );
+  }
+
+  if (
+    !normalizedKeyword
+  ) {
+    throw new Error(
+      "Keyword is required"
+    );
+  }
+
+  const refreshed =
+    withTransaction(database => {
+    database
+      .prepare(`
+        INSERT INTO folder_keyword_overrides (
+          folder_id,
+          keyword,
+          role,
+          weight,
+          source,
+          updated_at
+        )
+        VALUES (?, ?, ?, ?, 'user', ?)
+        ON CONFLICT(folder_id, keyword) DO UPDATE SET
+          role = excluded.role,
+          weight = excluded.weight,
+          source = excluded.source,
+          updated_at = excluded.updated_at
+      `)
+      .run(
+        folderId,
+        normalizedKeyword,
+        normalizedRole,
+        Math.max(
+          0.5,
+          Math.min(
+            3,
+            Number(weight || 1)
+          )
+        ),
+        now()
+      );
+
+    return refreshOrganizationsForKeyword(
+      database,
+      normalizedKeyword
+    );
+  });
+
+  log.info(
+    "organizer.folder-keyword.saved",
+    {
+      folderId,
+      keyword:
+        normalizedKeyword,
+      role:
+        normalizedRole,
+      refreshed:
+        refreshed.documents
+    }
+  );
+
+  return {
+    overrides:
+      getFolderKeywordOverrides(
+        folderId
+      ),
+    refreshed
+  };
+}
+
+export function deleteFolderKeywordOverride(folderId, keyword) {
+
+  const normalizedKeyword =
+    normalizeFolderKeyword(
+      keyword
+    );
+
+  if (
+    !folderId ||
+    !normalizedKeyword
+  ) {
+    return {
+      overrides:
+        getFolderKeywordOverrides(
+          folderId
+        ),
+      refreshed:
+        {
+          documents: 0
+        }
+    };
+  }
+
+  const refreshed =
+    withTransaction(database => {
+    database
+      .prepare(`
+        DELETE FROM folder_keyword_overrides
+        WHERE folder_id = ?
+          AND keyword = ?
+      `)
+      .run(
+        folderId,
+        normalizedKeyword
+      );
+
+    return refreshOrganizationsForKeyword(
+      database,
+      normalizedKeyword
+    );
+  });
+
+  log.info(
+    "organizer.folder-keyword.deleted",
+    {
+      folderId,
+      keyword:
+        normalizedKeyword,
+      refreshed:
+        refreshed.documents
+    }
+  );
+
+  return {
+    overrides:
+      getFolderKeywordOverrides(
+        folderId
+      ),
+    refreshed
+  };
+}
+
 export function searchDocuments(query) {
 
   const ftsDocs =
@@ -3686,6 +4145,26 @@ export function getDatabaseInfo() {
 
   const database =
     getDb();
+  const mainSize =
+    getFileSize(
+      SQLITE_DB_PATH
+    );
+  const walSize =
+    getFileSize(
+      `${SQLITE_DB_PATH}-wal`
+    );
+  const shmSize =
+    getFileSize(
+      `${SQLITE_DB_PATH}-shm`
+    );
+  const sqliteStats =
+    fs.existsSync(
+      SQLITE_DB_PATH
+    )
+      ? fs.statSync(
+          SQLITE_DB_PATH
+        )
+      : null;
 
   return {
     engine:
@@ -3694,6 +4173,18 @@ export function getDatabaseInfo() {
       SQLITE_DB_PATH,
     jsonPath:
       JSON_DB_PATH,
+    sizeBytes:
+      mainSize +
+      walSize +
+      shmSize,
+    mainSizeBytes:
+      mainSize,
+    walSizeBytes:
+      walSize,
+    shmSizeBytes:
+      shmSize,
+    updatedAt:
+      sqliteStats?.mtime?.toISOString?.() || null,
     documents:
       Number(
         database

@@ -19,34 +19,260 @@ import {
 } from "./utils/organizer";
 import "./App.css";
 
-const TYPE_OPTIONS = [
-  "all",
-  "pdf",
-  "image",
-  "office",
-  "code",
-  "text"
+const SEARCH_VISIBLE_RESULTS = 30;
+const APP_VERSION = "1.0.0";
+const FOLDER_KEYWORD_ROLE_OPTIONS = [
+  {
+    value: "positive",
+    label: "Important"
+  },
+  {
+    value: "negative",
+    label: "Unrelated"
+  },
+  {
+    value: "ignored",
+    label: "Ignore"
+  }
 ];
-
-const STATUS_OPTIONS = [
-  "all",
-  "done",
-  "indexing",
-  "failed"
+const FOLDER_KEYWORD_GROUPS = [
+  {
+    role: "positive",
+    title: "Important",
+    empty: "No important keywords."
+  },
+  {
+    role: "negative",
+    title: "Unrelated",
+    empty: "No unrelated keywords."
+  },
+  {
+    role: "ignored",
+    title: "Ignored",
+    empty: "No ignored keywords."
+  }
 ];
-
-const SEARCH_EXAMPLES = [
-  "t-test",
-  "BCS303",
-  "banker algorithm",
-  "CPU cache",
-  "stdio.h"
-];
-const INITIAL_VISIBLE_RESULTS = 10;
-const SHOW_MORE_RESULTS_STEP = 10;
 
 const imageDataCache =
   new Map();
+
+const previewDocuments = [
+  {
+    documentId: "preview-jee-paper",
+    fileName: "2024-JEE Main - 4_XIIth Pass_Paper.pdf",
+    filePath: "/Users/mac/Documents/Exam Papers/2024-JEE Main - 4_XIIth Pass_Paper.pdf",
+    keywordTags: [
+      "jee",
+      "question paper",
+      "marks",
+      "physics"
+    ],
+    titleTags: [
+      "JEE Main Paper"
+    ],
+    category: "Unknown",
+    cleanText: "JEE Main question paper maximum marks section paper code",
+    textQuality: 96,
+    cleanWordCount: 840,
+    totalPages: 24,
+    indexedPages: 3,
+    status: "done",
+    semanticEmbedding: {
+      hasVector: true
+    },
+    updatedAt: "2026-07-14T10:00:00.000Z"
+  },
+  {
+    documentId: "preview-assignment",
+    fileName: "Assignment-1(BCS 402).pdf",
+    filePath: "/Users/mac/Documents/Semester/Assignment-1(BCS 402).pdf",
+    keywordTags: [
+      "assignment",
+      "bcs402",
+      "computer science"
+    ],
+    titleTags: [
+      "BCS402 Assignment"
+    ],
+    category: "Unknown",
+    cleanText: "assignment BCS 402 computer science submit practical questions",
+    textQuality: 91,
+    cleanWordCount: 360,
+    totalPages: 4,
+    indexedPages: 4,
+    status: "done",
+    semanticEmbedding: {
+      hasVector: true
+    },
+    updatedAt: "2026-07-14T09:50:00.000Z"
+  },
+  {
+    documentId: "preview-android",
+    fileName: "AndroidManifest.xml",
+    filePath: "/Users/mac/Projects/App/AndroidManifest.xml",
+    keywordTags: [
+      "android",
+      "manifest",
+      "gradle"
+    ],
+    titleTags: [
+      "Android Project"
+    ],
+    category: "Technical",
+    cleanText: "android gradle manifest application activity kotlin",
+    textQuality: 98,
+    cleanWordCount: 120,
+    status: "done",
+    semanticEmbedding: {
+      hasVector: true
+    },
+    updatedAt: "2026-07-14T09:40:00.000Z"
+  },
+  {
+    documentId: "preview-notes",
+    fileName: "12_physical_education_ch_3_yoga_lifestyle.pdf",
+    filePath: "/Users/mac/Documents/Notes/12_physical_education_ch_3_yoga_lifestyle.pdf",
+    keywordTags: [
+      "physical education",
+      "yoga",
+      "sports"
+    ],
+    titleTags: [
+      "Yoga Lifestyle"
+    ],
+    category: "Unknown",
+    cleanText: "physical education chapter yoga lifestyle sports asana cbseguide notes",
+    textQuality: 94,
+    cleanWordCount: 1260,
+    totalPages: 12,
+    indexedPages: 3,
+    status: "done",
+    semanticEmbedding: {
+      hasVector: true
+    },
+    updatedAt: "2026-07-14T09:30:00.000Z"
+  },
+  {
+    documentId: "preview-review",
+    fileName: "scanned_handwritten_page.pdf",
+    filePath: "/Users/mac/Documents/Mixed/scanned_handwritten_page.pdf",
+    keywordTags: [
+      "page",
+      "notes"
+    ],
+    titleTags: [],
+    category: "Unknown",
+    cleanText: "partial handwritten OCR page notes unclear",
+    textQuality: 42,
+    cleanWordCount: 78,
+    totalPages: 1,
+    indexedPages: 1,
+    status: "done",
+    semanticEmbedding: {
+      hasVector: true
+    },
+    updatedAt: "2026-07-14T09:20:00.000Z"
+  }
+];
+
+const fallbackElectronAPI = {
+  onSmartSearchLog: () => () => {},
+  selectFolder: async () => ({
+    files: []
+  }),
+  selectFiles: async () => [],
+  getImageData: async () => null,
+  getFilePreviewData: async () => null,
+  extractDocumentText: async () => ({
+    success: false,
+    error: "Electron preview mode"
+  }),
+  saveDocument: async document => document,
+  getDocuments: async () =>
+    previewDocuments.map(
+      hydrateDocument
+    ),
+  getDocumentDetail: async documentId =>
+    previewDocuments
+      .map(
+        hydrateDocument
+      )
+      .find(document =>
+        document.documentId === documentId
+      ) || null,
+  searchDocuments: async query => {
+    const lower =
+      String(query || "")
+        .toLowerCase();
+
+    return previewDocuments.map(
+      hydrateDocument
+    ).filter(document =>
+      [
+        document.fileName,
+        document.cleanText,
+        document.organization?.primaryFolderPath,
+        ...(document.keywordTags || [])
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(lower)
+    );
+  },
+  searchDocumentsPlanB: async query =>
+    fallbackElectronAPI.searchDocuments(
+      query
+    ),
+  getFolderKeywords: async () => [
+    {
+      folderId: "exam-papers-jee",
+      keyword: "jee",
+      role: "positive"
+    },
+    {
+      folderId: "exam-papers-jee",
+      keyword: "admission",
+      role: "negative"
+    },
+    {
+      folderId: "exam-papers-jee",
+      keyword: "student",
+      role: "ignored"
+    }
+  ],
+  saveFolderKeyword: async payload => ({
+    success: true,
+    overrides: [
+      payload
+    ],
+    refreshed: {
+      documents: 0
+    }
+  }),
+  deleteFolderKeyword: async () => ({
+    success: true,
+    overrides: [],
+    refreshed: {
+      documents: 0
+    }
+  }),
+  getOcrQueueStatus: async () => ({
+    pending: 0,
+    processing: 0,
+    done: 5,
+    failed: 0
+  }),
+  openFile: async () => true,
+  revealFile: async () => true
+};
+
+if (
+  typeof window !== "undefined" &&
+  !window.electronAPI
+) {
+  window.electronAPI =
+    fallbackElectronAPI;
+}
 
 function getExtension(filePath = "") {
   const match =
@@ -145,6 +371,92 @@ function getQualityClass(doc) {
   return label
     .toLowerCase()
     .replace(/\s+/g, "-");
+}
+
+function getConfidenceLabel(organization) {
+  const confidence =
+    Number(organization?.confidence || 0);
+
+  if (
+    organization?.needsReview ||
+    confidence < 0.55
+  ) {
+    return "Needs review";
+  }
+
+  if (confidence >= 0.8) {
+    return "High confidence";
+  }
+
+  return "Medium confidence";
+}
+
+function getConfidenceClass(organization) {
+  const label =
+    getConfidenceLabel(
+      organization
+    );
+
+  return label
+    .toLowerCase()
+    .replace(/\s+/g, "-");
+}
+
+function getOrganizationReason(document) {
+  const organization =
+    getOrganization(
+      document
+    );
+
+  return (
+    organization?.reason || []
+  )
+    .slice(0, 2)
+    .join("; ") ||
+    "content and filename signals";
+}
+
+function formatUpdatedAt(value) {
+  if (!value) {
+    return "Unknown";
+  }
+
+  const date =
+    new Date(value);
+
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
+    return "Unknown";
+  }
+
+  return new Intl.DateTimeFormat(
+    undefined,
+    {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit"
+    }
+  ).format(date);
+}
+
+function getConfidencePercent(organization) {
+  return Math.round(
+    Number(
+      organization?.confidence || 0
+    ) * 100
+  );
+}
+
+function getTypeLabel(organization, document) {
+  return organization?.documentType ||
+    getFileType(
+      document?.filePath || ""
+    );
 }
 
 function getQueueTotal(queueStatus) {
@@ -253,10 +565,10 @@ function buildDocumentFromExtraction(file, result) {
   );
 }
 
-function ImageThumbnail({ path }) {
+function FilePreviewImage({ path }) {
   const [
-    imageSrc,
-    setImageSrc
+    previewSrc,
+    setPreviewSrc
   ] = useState(() =>
     imageDataCache.get(path) ?? null
   );
@@ -324,10 +636,27 @@ function ImageThumbnail({ path }) {
     let cancelled = false;
 
     async function load() {
-      const data =
-        await window
+      let data = null;
+
+      if (
+        window
           .electronAPI
-          .getImageData(path);
+          .getFilePreviewData
+      ) {
+        data =
+          await window
+            .electronAPI
+            .getFilePreviewData(
+              path
+            );
+      }
+
+      if (!data) {
+        data =
+          await window
+            .electronAPI
+            .getImageData(path);
+      }
 
       imageDataCache.set(
         path,
@@ -335,7 +664,7 @@ function ImageThumbnail({ path }) {
       );
 
       if (!cancelled) {
-        setImageSrc(data);
+        setPreviewSrc(data);
       }
     }
 
@@ -349,13 +678,13 @@ function ImageThumbnail({ path }) {
     path
   ]);
 
-  if (!imageSrc) {
+  if (!previewSrc) {
     return (
       <div
         className="thumb-placeholder"
         ref={ref}
       >
-        IMG
+        {getFileType(path).toUpperCase()}
       </div>
     );
   }
@@ -363,7 +692,7 @@ function ImageThumbnail({ path }) {
   return (
     <img
       ref={ref}
-      src={imageSrc}
+      src={previewSrc}
       alt=""
     />
   );
@@ -371,17 +700,20 @@ function ImageThumbnail({ path }) {
 
 function FileThumb({
   doc,
-  loadImage = false
+  loadPreview = false
 }) {
   const type =
     getFileType(doc.filePath);
 
   if (
-    type === "image" &&
-    loadImage
+    loadPreview &&
+    [
+      "image",
+      "pdf"
+    ].includes(type)
   ) {
     return (
-      <ImageThumbnail
+      <FilePreviewImage
         path={doc.filePath}
       />
     );
@@ -453,25 +785,13 @@ function App() {
     setQuery
   ] = useState("");
   const [
-    recentSearches,
-    setRecentSearches
-  ] = useState([]);
-  const [
     viewMode,
     setViewMode
-  ] = useState("list");
+  ] = useState("compact");
   const [
-    typeFilter,
-    setTypeFilter
-  ] = useState("all");
-  const [
-    statusFilter,
-    setStatusFilter
-  ] = useState("all");
-  const [
-    categoryFilter,
-    setCategoryFilter
-  ] = useState("all");
+    sidebarOpen,
+    setSidebarOpen
+  ] = useState(true);
   const [
     selectedFolderId,
     setSelectedFolderId
@@ -493,6 +813,10 @@ function App() {
     setIsProcessing
   ] = useState(false);
   const [
+    isRefreshing,
+    setIsRefreshing
+  ] = useState(false);
+  const [
     activity,
     setActivity
   ] = useState([]);
@@ -505,17 +829,25 @@ function App() {
     setQueueStatus
   ] = useState({});
   const [
-    searchState,
-    setSearchState
-  ] = useState("idle");
-  const [
     searchMode,
     setSearchMode
   ] = useState("fast");
   const [
-    visibleResultLimit,
-    setVisibleResultLimit
-  ] = useState(INITIAL_VISIBLE_RESULTS);
+    folderKeywords,
+    setFolderKeywords
+  ] = useState([]);
+  const [
+    folderKeywordInput,
+    setFolderKeywordInput
+  ] = useState("");
+  const [
+    folderKeywordRole,
+    setFolderKeywordRole
+  ] = useState("positive");
+  const [
+    folderKeywordSaving,
+    setFolderKeywordSaving
+  ] = useState(false);
 
   const virtualFolders =
     useMemo(
@@ -566,41 +898,11 @@ function App() {
       [documents]
     );
 
-  const categoryOptions =
-    useMemo(
-      () => [
-        "all",
-        ...new Set(
-          documents
-            .map(doc => doc.category)
-            .filter(Boolean)
-        )
-      ],
-      [documents]
-    );
-
   const visibleResults =
     useMemo(
-      () =>
-        results.filter(doc => {
-          if (
-            typeFilter !== "all" &&
-            getFileType(doc.filePath) !== typeFilter
-          )
-            return false;
-
-          if (
-            statusFilter !== "all" &&
-            (doc.status || "done") !== statusFilter
-          )
-            return false;
-
-          if (
-            categoryFilter !== "all" &&
-            doc.category !== categoryFilter
-          )
-            return false;
-
+      () => {
+        const filtered =
+          results.filter(doc => {
           if (
             selectedFolderId !== "all-files" &&
             !getDocumentFolderIds(doc)
@@ -609,46 +911,117 @@ function App() {
             return false;
 
           return true;
-        }),
+        });
+
+        return [...filtered].sort((a, b) => {
+          return new Date(b.updatedAt || b.scannedAt || 0).getTime() -
+            new Date(a.updatedAt || a.scannedAt || 0).getTime();
+        });
+      },
       [
         results,
-        typeFilter,
-        statusFilter,
-        categoryFilter,
         selectedFolderId
       ]
     );
   const displayedResults =
     useMemo(
       () =>
-        visibleResults.slice(
-          0,
-          visibleResultLimit
-        ),
+        query.trim()
+          ? visibleResults.slice(
+              0,
+              SEARCH_VISIBLE_RESULTS
+            )
+          : visibleResults,
       [
         visibleResults,
-        visibleResultLimit
+        query
       ]
     );
-  const hasMoreResults =
-    visibleResults.length >
-    displayedResults.length;
+  const dashboardStats =
+    useMemo(
+      () => {
+        const reviewCount =
+          documents.filter(doc =>
+            getOrganization(doc)
+              ?.needsReview
+          ).length;
+        const indexedPages =
+          documents.reduce(
+            (sum, doc) =>
+              sum +
+              Number(
+                doc.indexedPages ||
+                doc.pages?.length ||
+                0
+              ),
+            0
+          );
+        const totalPages =
+          documents.reduce(
+            (sum, doc) =>
+              sum +
+              Number(
+                doc.totalPages ||
+                doc.indexedPages ||
+                doc.pages?.length ||
+                0
+              ),
+            0
+          );
+        const embeddings =
+          documents.filter(doc =>
+            doc.semanticEmbedding?.hasVector ||
+            doc.semanticEmbedding?.vector?.length
+          ).length;
 
-  useEffect(
-    () => {
-      setVisibleResultLimit(
-        INITIAL_VISIBLE_RESULTS
-      );
-    },
-    [
-      query,
-      searchMode,
-      typeFilter,
-      statusFilter,
-      categoryFilter,
-      selectedFolderId
-    ]
-  );
+        return [
+          {
+            label: "Files Indexed",
+            value:
+              documents.length
+          },
+          {
+            label: "Pages Found",
+            value:
+              totalPages
+          },
+          {
+            label: "Pages Indexed",
+            value:
+              indexedPages
+          },
+          {
+            label: "Need Review",
+            value:
+              reviewCount
+          },
+          {
+            label: "Embeddings Ready",
+            value:
+              embeddings
+          }
+        ];
+      },
+      [documents]
+    );
+  const groupedFolderKeywords =
+    useMemo(
+      () => ({
+        positive:
+          folderKeywords.filter(item =>
+            item.role === "positive"
+          ),
+        negative:
+          folderKeywords.filter(item =>
+            item.role === "negative"
+          ),
+        ignored:
+          folderKeywords.filter(item =>
+            item.role === "ignored"
+          )
+      }),
+      [folderKeywords]
+    );
 
   function addActivity(event) {
     setActivity(prev => [
@@ -664,12 +1037,12 @@ function App() {
   }
 
   async function refreshDocuments() {
+    const rawDocs =
+      await window
+        .electronAPI
+        .getDocuments();
     const docs =
-      (
-        await window
-          .electronAPI
-          .getDocuments()
-      ).map(
+      rawDocs.map(
         hydrateDocument
       );
 
@@ -680,6 +1053,42 @@ function App() {
     }
 
     return docs;
+  }
+
+  async function handleManualRefresh() {
+    if (isRefreshing) {
+      return;
+    }
+
+    setIsRefreshing(true);
+    setCurrentTask("Refreshing library");
+
+    try {
+      const docs =
+        await refreshDocuments();
+
+      await refreshQueue();
+
+      addActivity({
+        level: "info",
+        title: "Library refreshed",
+        detail:
+          `${docs.length} file${docs.length === 1 ? "" : "s"} loaded`
+      });
+    } catch (error) {
+      addActivity({
+        level: "error",
+        title: "Refresh failed",
+        detail:
+          error.message
+      });
+    } finally {
+      setIsRefreshing(false);
+
+      if (!isProcessing) {
+        setCurrentTask("Idle");
+      }
+    }
   }
 
   const refreshQueue =
@@ -771,6 +1180,138 @@ function App() {
       }
     };
   }, [refreshQueue]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadFolderKeywords() {
+      if (
+        !selectedFolderId ||
+        selectedFolderId === "all-files"
+      ) {
+        setFolderKeywords([]);
+        return;
+      }
+
+      const keywords =
+        await window
+          .electronAPI
+          .getFolderKeywords?.(
+            selectedFolderId
+          );
+
+      if (!cancelled) {
+        setFolderKeywords(
+          keywords || []
+        );
+      }
+    }
+
+    loadFolderKeywords();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedFolderId]);
+
+  async function handleSaveFolderKeyword(event) {
+    event.preventDefault();
+
+    const keyword =
+      folderKeywordInput.trim();
+
+    if (
+      !keyword ||
+      !selectedFolder ||
+      selectedFolder.id === "all-files"
+    ) {
+      return;
+    }
+
+    setFolderKeywordSaving(true);
+
+    try {
+      const result =
+        await window
+          .electronAPI
+          .saveFolderKeyword?.({
+            folderId:
+              selectedFolder.id,
+            keyword,
+            role:
+              folderKeywordRole,
+            weight: 1
+          });
+
+      if (result?.success === false) {
+        addActivity({
+          level: "error",
+          title: "Folder keyword failed",
+          detail:
+            result.error || keyword
+        });
+        return;
+      }
+
+      setFolderKeywordInput("");
+      setFolderKeywords(
+        result?.overrides || []
+      );
+      await refreshDocuments();
+      addActivity({
+        level: "info",
+        title: "Folder keyword saved",
+        detail:
+          `${selectedFolder.name}: ${keyword}`
+      });
+    } finally {
+      setFolderKeywordSaving(false);
+    }
+  }
+
+  async function handleDeleteFolderKeyword(keyword) {
+    if (
+      !selectedFolder ||
+      selectedFolder.id === "all-files"
+    ) {
+      return;
+    }
+
+    setFolderKeywordSaving(true);
+
+    try {
+      const result =
+        await window
+          .electronAPI
+          .deleteFolderKeyword?.(
+            selectedFolder.id,
+            keyword
+          );
+
+      if (result?.success === false) {
+        addActivity({
+          level: "error",
+          title: "Folder keyword delete failed",
+          detail:
+            result.error || keyword
+        });
+        return;
+      }
+
+      setFolderKeywords(
+        result?.overrides || []
+      );
+      await refreshDocuments();
+      addActivity({
+        level: "info",
+        title: "Folder keyword removed",
+        detail:
+          `${selectedFolder.name}: ${keyword}`
+      });
+    } finally {
+      setFolderKeywordSaving(false);
+    }
+  }
 
   useEffect(() => {
     if (
@@ -997,17 +1538,11 @@ function App() {
     const trimmed =
       nextQuery.trim();
 
-    setSearchState("searching");
-    setVisibleResultLimit(
-      INITIAL_VISIBLE_RESULTS
-    );
-
     if (!trimmed) {
       const docs =
         await refreshDocuments();
 
       setResults(docs);
-      setSearchState("idle");
       return;
     }
 
@@ -1028,69 +1563,153 @@ function App() {
       );
 
     setResults(docs);
-    setSearchState("idle");
-    setRecentSearches(prev => [
-      trimmed,
-      ...prev.filter(
-        item =>
-          item !== trimmed
-      )
-    ].slice(0, 6));
-  }
-
-  function applyRecentSearch(item) {
-    setQuery(item);
-    runSearch(item);
   }
 
   const queueTotal =
     getQueueTotal(queueStatus);
 
+  const inspectedDoc =
+    selectedDoc || null;
   const selectedText =
-    selectedDoc?.cleanText ||
-    selectedDoc?.text ||
+    inspectedDoc?.cleanText ||
+    inspectedDoc?.text ||
     "";
   const selectedOrganization =
-    selectedDoc
+    inspectedDoc
       ? getOrganization(
-          selectedDoc
+          inspectedDoc
         )
       : null;
 
   return (
     <div className="app-shell">
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">
-            Local file intelligence
-          </p>
-          <h1>
-            Smart File Organiser
-          </h1>
-          <p className="subtitle">
-            Search messy folders by content, OCR text, tags, and document context.
-          </p>
-        </div>
+      <section className="app-window">
+        <header className="topbar">
+          <div className="brand-block">
+            <button
+              className={`toolbar-icon ${sidebarOpen ? "active" : ""}`}
+              type="button"
+              aria-label={sidebarOpen ? "Hide smart folders" : "Show smart folders"}
+              aria-expanded={sidebarOpen}
+              onClick={() =>
+                setSidebarOpen(current =>
+                  !current
+                )
+              }
+            >
+              <span />
+            </button>
+            <div className="brand-mark" aria-hidden="true">
+              SF
+            </div>
+            <h1>
+              Smart File Organiser
+            </h1>
+          </div>
 
-        <div className="topbar-actions">
-          <button
-            className="btn btn-secondary"
-            onClick={handleFolderSelect}
-            disabled={isProcessing}
-          >
-            Upload Folder
-          </button>
-          <button
-            className="btn btn-primary"
-            onClick={handleFileSelect}
-            disabled={isProcessing}
-          >
-            Upload Files
-          </button>
-        </div>
-      </header>
+          <div className="toolbar-search">
+            <input
+              value={query}
+              onChange={event =>
+                setQuery(
+                  event.target.value
+                )
+              }
+              onKeyDown={event => {
+                if (event.key === "Enter") {
+                  runSearch();
+                }
+              }}
+              placeholder="Search files by name, content, or keywords..."
+              className="search-input"
+            />
+            <span>
+              ⌘K
+            </span>
+          </div>
 
-      <main className="layout">
+          <div className="upload-actions">
+            <button
+              className="btn btn-secondary upload-main"
+              onClick={handleFileSelect}
+              disabled={isProcessing}
+            >
+              Upload Files
+            </button>
+            <button
+              className="btn btn-secondary upload-main"
+              onClick={handleFolderSelect}
+              disabled={isProcessing}
+            >
+              Folder
+            </button>
+          </div>
+
+          <label className="semantic-toggle">
+            <input
+              type="checkbox"
+              checked={searchMode === "planB"}
+              onChange={event =>
+                setSearchMode(
+                  event.target.checked
+                    ? "planB"
+                    : "fast"
+                )
+              }
+            />
+            <span />
+            Semantic Search
+          </label>
+
+          <div className="view-toggle toolbar-view-toggle">
+            <button
+              className={viewMode === "compact" ? "active" : ""}
+              onClick={() =>
+                setViewMode("compact")
+              }
+            >
+              Compact
+            </button>
+            <button
+              className={viewMode === "list" ? "active" : ""}
+              onClick={() =>
+                setViewMode("list")
+              }
+            >
+              List
+            </button>
+          </div>
+        </header>
+
+        <section className="stats-strip">
+          {
+            dashboardStats.map(stat => (
+              <div
+                className="stat-item"
+                key={stat.label}
+              >
+                <span className="stat-icon" aria-hidden="true" />
+                <strong>
+                  {stat.value}
+                </strong>
+                <small>
+                  {stat.label}
+                </small>
+              </div>
+            ))
+          }
+          <div className="stat-item processing-stat">
+            <span className="stat-icon success" aria-hidden="true" />
+            <strong>
+              {isProcessing ? "Processing" : "All processing is on-device"}
+            </strong>
+            <small>
+              Private · Fast · Secure
+            </small>
+          </div>
+        </section>
+
+      <main className={`layout ${sidebarOpen ? "" : "sidebar-collapsed"} ${inspectedDoc ? "" : "inspector-closed"}`}>
         <aside className="side-panel">
           <section className="panel-section">
             <div className="panel-heading">
@@ -1161,10 +1780,10 @@ function App() {
           <section className="panel-section folder-section">
             <div className="panel-heading">
               <h2>
-                Virtual Folders
+                SMART FOLDERS
               </h2>
               <span>
-                no file moves
+                +
               </span>
             </div>
 
@@ -1212,182 +1831,34 @@ function App() {
               }
             </div>
           </section>
+
         </aside>
 
         <section className="workspace">
-          <section className="search-panel">
-            <div className="search-row">
-              <input
-                value={query}
-                onChange={event =>
-                  setQuery(
-                    event.target.value
-                  )
-                }
-                onKeyDown={event => {
-                  if (event.key === "Enter") {
-                    runSearch();
-                  }
-                }}
-                placeholder="Search: t-test, BCS303, banker algorithm, CPU cache"
-                className="search-input"
-              />
-
-              <select
-                className="search-mode-select"
-                value={searchMode}
-                onChange={event =>
-                  setSearchMode(event.target.value)
-                }
-                aria-label="Search mode"
-              >
-                <option value="fast">
-                  Fast
-                </option>
-                <option value="planB">
-                  Plan B
-                </option>
-              </select>
-
-              {
-                query && (
-                  <button
-                    className="btn btn-secondary icon-btn"
-                    onClick={() => {
-                      setQuery("");
-                      runSearch("");
-                    }}
-                    aria-label="Clear search"
-                  >
-                    Clear
-                  </button>
-                )
-              }
-
-              <button
-                onClick={() =>
-                  runSearch()
-                }
-                className="btn btn-primary"
-              >
-                {searchState === "searching" ? "Searching" : "Search"}
-              </button>
-            </div>
-
-            <div className="chips">
-              {
-                (recentSearches.length
-                  ? recentSearches
-                  : SEARCH_EXAMPLES
-                ).map(item => (
-                  <button
-                    key={item}
-                    className="chip"
-                    onClick={() =>
-                      applyRecentSearch(item)
-                    }
-                  >
-                    {item}
-                  </button>
-                ))
-              }
-            </div>
-          </section>
-
-          <section className="filters">
-            <label>
-              Type
-              <select
-                value={typeFilter}
-                onChange={event =>
-                  setTypeFilter(event.target.value)
-                }
-              >
-                {
-                  TYPE_OPTIONS.map(option => (
-                    <option
-                      key={option}
-                      value={option}
-                    >
-                      {option}
-                    </option>
-                  ))
-                }
-              </select>
-            </label>
-
-            <label>
-              Status
-              <select
-                value={statusFilter}
-                onChange={event =>
-                  setStatusFilter(event.target.value)
-                }
-              >
-                {
-                  STATUS_OPTIONS.map(option => (
-                    <option
-                      key={option}
-                      value={option}
-                    >
-                      {option}
-                    </option>
-                  ))
-                }
-              </select>
-            </label>
-
-            <label>
-              Category
-              <select
-                value={categoryFilter}
-                onChange={event =>
-                  setCategoryFilter(event.target.value)
-                }
-              >
-                {
-                  categoryOptions.map(option => (
-                    <option
-                      key={option}
-                      value={option}
-                    >
-                      {option}
-                    </option>
-                  ))
-                }
-              </select>
-            </label>
-
-            <div className="view-toggle">
-              <button
-                className={viewMode === "list" ? "active" : ""}
-                onClick={() =>
-                  setViewMode("list")
-                }
-              >
-                List
-              </button>
-              <button
-                className={viewMode === "grid" ? "active" : ""}
-                onClick={() =>
-                  setViewMode("grid")
-                }
-              >
-                Grid
-              </button>
-            </div>
-          </section>
-
-          <section className="results-header">
+          <section className="file-pane-header">
             <div>
+              <span className="pane-folder-icon" aria-hidden="true" />
               <h2>
-                Results
+                {selectedFolder?.path || "All Files"}
               </h2>
               <p>
-                {displayedResults.length} shown from {visibleResults.length} matching files
-                {results.length !== visibleResults.length ? ` (${results.length || documents.length} total indexed)` : ""}
-                {selectedFolder ? ` in ${selectedFolder.path}` : ""}
+                {displayedResults.length} file{displayedResults.length === 1 ? "" : "s"}
               </p>
+            </div>
+            <div className="pane-actions">
+              <button
+                className="refresh-button"
+                type="button"
+                onClick={handleManualRefresh}
+                disabled={isRefreshing}
+                aria-label="Refresh files"
+                title="Refresh files"
+              >
+                <span aria-hidden="true">
+                  ↻
+                </span>
+                {isRefreshing ? "Refreshing" : "Refresh"}
+              </button>
             </div>
           </section>
 
@@ -1404,120 +1875,187 @@ function App() {
                   </div>
                 )
               : (
-                  <div className={viewMode === "grid" ? "grid-view" : "list-view"}>
-                    {
-                      displayedResults.map(doc => (
-                        <article
-                          key={`${doc.documentId || doc.filePath}-${doc.filePath}`}
-                          className={`result-card ${viewMode}`}
-                          onClick={() =>
-                            setSelectedDoc(doc)
+                  viewMode === "compact"
+                    ? (
+                        <div className="compact-table">
+                          <div className="compact-row compact-head">
+                            <span>
+                              File
+                            </span>
+                            <span>
+                              Type
+                            </span>
+                            <span>
+                              Confidence
+                            </span>
+                            <span>
+                              Match Reason
+                            </span>
+                            <span>
+                              Updated
+                            </span>
+                          </div>
+
+                          {
+                            displayedResults.map(doc => {
+                              const organization =
+                                getOrganization(
+                                  doc
+                                );
+
+                              return (
+                                <button
+                                  key={`${doc.documentId || doc.filePath}-${doc.filePath}`}
+                                  className={`compact-row ${selectedDoc?.documentId === doc.documentId ? "active" : ""}`}
+                                  onClick={() =>
+                                    setSelectedDoc(doc)
+                                  }
+                                >
+                                  <span
+                                    className="compact-file"
+                                    title={doc.filePath || doc.fileName}
+                                  >
+                                    <strong>
+                                      {doc.fileName}
+                                    </strong>
+                                  </span>
+                                  <span>
+                                    {getTypeLabel(
+                                      organization,
+                                      doc
+                                    )}
+                                  </span>
+                                  <span>
+                                    <b className={`confidence-pill ${getConfidenceClass(organization)}`}>
+                                      {getConfidencePercent(organization)}%
+                                    </b>
+                                  </span>
+                                  <span>
+                                    {getOrganizationReason(doc)}
+                                  </span>
+                                  <span>
+                                    {formatUpdatedAt(
+                                      doc.updatedAt ||
+                                      doc.scannedAt
+                                    )}
+                                  </span>
+                                </button>
+                              );
+                            })
                           }
-                        >
-                          <div className="result-thumb">
-                            <FileThumb
-                              doc={doc}
-                              loadImage={viewMode === "grid"}
-                            />
-                          </div>
+                        </div>
+                      )
+                    : (
+                        <div className={viewMode === "grid" ? "grid-view" : "list-view"}>
+                          {
+                            displayedResults.map(doc => {
+                              const organization =
+                                getOrganization(
+                                  doc
+                                );
 
-                          <div className="result-body">
-                            <div className="result-title-row">
-                              <h3>
-                                {doc.fileName}
-                              </h3>
-                              <span className={`quality-pill ${getQualityClass(doc)}`}>
-                                {getQualityLabel(doc)}
-                              </span>
-                            </div>
+                              return (
+                                <article
+                                  key={`${doc.documentId || doc.filePath}-${doc.filePath}`}
+                                  className={`result-card ${viewMode} ${selectedDoc?.documentId === doc.documentId ? "active" : ""}`}
+                                  onClick={() =>
+                                    setSelectedDoc(doc)
+                                  }
+                                >
+                                  <div className="result-thumb">
+                                    <FileThumb
+                                      doc={doc}
+                                      loadPreview={viewMode === "list"}
+                                    />
+                                  </div>
 
-                            <p className="path-text">
-                              {compactPath(doc.filePath)}
-                            </p>
+                                  <div className="result-body">
+                                    <div className="result-title-row">
+                                      <h3>
+                                        {doc.fileName}
+                                      </h3>
+                                      <span className={`quality-pill ${getQualityClass(doc)}`}>
+                                        {getQualityLabel(doc)}
+                                      </span>
+                                    </div>
 
-                            <p className="preview">
-                              {doc.preview || doc.cleanText?.slice(0, 220) || "No preview available"}
-                            </p>
+                                    <p className="path-text">
+                                      {compactPath(doc.filePath)}
+                                    </p>
 
-                            <div className="tag-row">
-                              {
-                                (doc.keywordTags || [])
-                                  .slice(0, 5)
-                                  .map(tag => (
-                                    <span key={tag}>
-                                      {tag}
-                                    </span>
-                                  ))
-                              }
-                            </div>
+                                    <p className="folder-line">
+                                      {organization?.primaryFolderPath || "Other"}
+                                      {" "}
+                                      <b className={`confidence-pill ${getConfidenceClass(organization)}`}>
+                                        {Math.round((organization?.confidence || 0) * 100)}%
+                                      </b>
+                                    </p>
 
-                            <div className="meta-row">
-                              <span>
-                                {getFileType(doc.filePath)}
-                              </span>
-                              <span>
-                                {doc.category || "Unknown"}
-                              </span>
-                              <span>
-                                {doc.organization?.primaryFolderPath || "Other"}
-                              </span>
-                              <span>
-                                {doc.totalPages ? `${doc.indexedPages || doc.pages?.length || 0}/${doc.totalPages} pages` : "single item"}
-                              </span>
-                              {
-                                doc.score != null && (
-                                  <span>
-                                    score {doc.score}
-                                  </span>
-                                )
-                              }
-                              {
-                                doc.planBScore != null && (
-                                  <span>
-                                    Plan B {doc.planBScore}
-                                  </span>
-                                )
-                              }
-                            </div>
-                          </div>
-                        </article>
-                      ))
-                    }
-                  </div>
+                                    <p className="preview">
+                                      {doc.preview || doc.cleanText?.slice(0, 220) || "No preview available"}
+                                    </p>
+
+                                    <p className="reason-line">
+                                      {getOrganizationReason(doc)}
+                                    </p>
+
+                                    <div className="tag-row">
+                                      {
+                                        (doc.keywordTags || [])
+                                          .slice(0, 5)
+                                          .map(tag => (
+                                            <span key={tag}>
+                                              {tag}
+                                            </span>
+                                          ))
+                                      }
+                                    </div>
+
+                                    <div className="meta-row">
+                                      <span>
+                                        {getFileType(doc.filePath)}
+                                      </span>
+                                      <span>
+                                        {doc.category || "Unknown"}
+                                      </span>
+                                      <span>
+                                        {doc.totalPages ? `${doc.indexedPages || doc.pages?.length || 0}/${doc.totalPages} pages` : "single item"}
+                                      </span>
+                                      {
+                                        doc.score != null && (
+                                          <span>
+                                            score {doc.score}
+                                          </span>
+                                        )
+                                      }
+                                      {
+                                        doc.planBScore != null && (
+                                          <span>
+                                            Plan B {doc.planBScore}
+                                          </span>
+                                        )
+                                      }
+                                    </div>
+                                  </div>
+                                </article>
+                              );
+                            })
+                          }
+                        </div>
+                      )
                 )
-          }
-          {
-            hasMoreResults && (
-              <div className="show-more-row">
-                <button
-                  className="btn btn-secondary"
-                  onClick={() =>
-                    setVisibleResultLimit(limit =>
-                      limit +
-                      SHOW_MORE_RESULTS_STEP
-                    )
-                  }
-                >
-                  Show 10 more
-                </button>
-                <span>
-                  {visibleResults.length - displayedResults.length} more available
-                </span>
-              </div>
-            )
           }
         </section>
 
-        {
-          selectedDoc && (
-            <aside className="detail-panel">
+        <aside className="detail-panel">
+          {
+            inspectedDoc
+              ? (
+                <>
               <div className="detail-header">
                 <div>
-                  <p className="eyebrow">
-                    Document detail
-                  </p>
                   <h2>
-                    {selectedDoc.fileName}
+                    Why This Folder?
                   </h2>
                 </div>
                 <button
@@ -1530,13 +2068,31 @@ function App() {
                 </button>
               </div>
 
+              <section className="inspector-card file-summary-card">
+                <div className={`file-summary-icon type-${getFileType(inspectedDoc.filePath)}`}>
+                  {getFileType(inspectedDoc.filePath).toUpperCase()}
+                </div>
+                <div>
+                  <h3>
+                    {inspectedDoc.fileName}
+                  </h3>
+                  <p>
+                    {getFileType(inspectedDoc.filePath).toUpperCase()} Document
+                    {" "}
+                    ·
+                    {" "}
+                    {inspectedDoc.totalPages ? `${inspectedDoc.totalPages} pages` : "single item"}
+                  </p>
+                </div>
+              </section>
+
               <div className="detail-actions">
                 <button
                   className="btn btn-primary"
                   onClick={() =>
                     window
                       .electronAPI
-                      .openFile(selectedDoc.filePath)
+                      .openFile(inspectedDoc.filePath)
                   }
                 >
                   Open File
@@ -1546,52 +2102,65 @@ function App() {
                   onClick={() =>
                     window
                       .electronAPI
-                      .revealFile(selectedDoc.filePath)
+                      .revealFile(inspectedDoc.filePath)
                   }
                 >
                   Reveal
                 </button>
               </div>
 
-              <div className="detail-stats">
-                <div>
+              <section className="detail-section why-section">
+                <div className="inspector-facts">
+                  <span>
+                    Folder
+                  </span>
                   <strong>
-                    {getQualityLabel(selectedDoc)}
+                    {selectedOrganization?.primaryFolderPath || "Other"}
                   </strong>
                   <span>
-                    OCR quality
+                    Type
                   </span>
-                </div>
-                <div>
                   <strong>
-                    {selectedDoc.cleanWordCount || 0}
+                    {selectedOrganization?.documentType || "unknown"}
                   </strong>
                   <span>
-                    words
+                    Subject
                   </span>
-                </div>
-                <div>
                   <strong>
-                    {selectedDoc.status || "done"}
+                    {selectedOrganization?.subject || "general"}
                   </strong>
                   <span>
-                    status
+                    Confidence
+                  </span>
+                  <strong>
+                    {getConfidencePercent(selectedOrganization)}%
+                  </strong>
+                </div>
+                <div className="confidence-row">
+                  <b className={`confidence-pill ${getConfidenceClass(selectedOrganization)}`}>
+                    {getConfidenceLabel(selectedOrganization)}
+                  </b>
+                  <span>
+                    {Math.round((selectedOrganization?.confidence || 0) * 100)}%
                   </span>
                 </div>
-              </div>
-
-              <section className="detail-section">
                 <h3>
-                  Virtual Folder
+                  Reasons
                 </h3>
-                <p className="category-box">
-                  {selectedOrganization?.primaryFolderPath || "Other"}
-                </p>
-                <p className="muted">
-                  Confidence {Math.round((selectedOrganization?.confidence || 0) * 100)}%.
-                  {" "}
-                  Reason: {(selectedOrganization?.reason || []).join("; ") || "document content"}.
-                </p>
+                <ul className="reason-list">
+                  {
+                    (selectedOrganization?.reason?.length
+                      ? selectedOrganization.reason
+                      : [
+                          "document content"
+                        ]
+                    ).map(reason => (
+                      <li key={reason}>
+                        {reason}
+                      </li>
+                    ))
+                  }
+                </ul>
                 {
                   selectedOrganization?.secondaryFolderPaths?.length > 0 && (
                     <div className="tag-row">
@@ -1618,13 +2187,159 @@ function App() {
 
               <section className="detail-section">
                 <h3>
+                  OCR Quality
+                </h3>
+                <div className="inspector-facts">
+                  <span>
+                    Quality
+                  </span>
+                  <strong>
+                    {getQualityLabel(inspectedDoc)}
+                  </strong>
+                  <span>
+                    Pages Found
+                  </span>
+                  <strong>
+                    {inspectedDoc.totalPages || 1}
+                  </strong>
+                  <span>
+                    Pages Indexed
+                  </span>
+                  <strong>
+                    {inspectedDoc.indexedPages || inspectedDoc.pages?.length || 1}
+                  </strong>
+                  <span>
+                    Last Updated
+                  </span>
+                  <strong>
+                    {formatUpdatedAt(inspectedDoc.updatedAt || inspectedDoc.scannedAt)}
+                  </strong>
+                </div>
+              </section>
+
+              <section className="detail-section folder-keyword-editor inspector-keywords">
+                <div className="folder-keyword-heading">
+                  <strong>
+                    Folder Keywords
+                  </strong>
+                  <button
+                    className="close-btn"
+                    type="button"
+                    disabled={
+                      folderKeywordSaving ||
+                      !folderKeywordInput.trim() ||
+                      !selectedFolder ||
+                      selectedFolder.id === "all-files"
+                    }
+                    onClick={handleSaveFolderKeyword}
+                  >
+                    Add
+                  </button>
+                </div>
+
+                <form
+                  className="folder-keyword-form"
+                  onSubmit={handleSaveFolderKeyword}
+                >
+                  <input
+                    value={folderKeywordInput}
+                    onChange={event =>
+                      setFolderKeywordInput(
+                        event.target.value
+                      )
+                    }
+                    placeholder="keyword or phrase"
+                    disabled={folderKeywordSaving}
+                  />
+                  <select
+                    value={folderKeywordRole}
+                    onChange={event =>
+                      setFolderKeywordRole(
+                        event.target.value
+                      )
+                    }
+                    disabled={folderKeywordSaving}
+                  >
+                    {
+                      FOLDER_KEYWORD_ROLE_OPTIONS.map(option => (
+                        <option
+                          key={option.value}
+                          value={option.value}
+                        >
+                          {option.label}
+                        </option>
+                      ))
+                    }
+                  </select>
+                </form>
+
+                <div className="folder-keyword-groups">
+                  {
+                    FOLDER_KEYWORD_GROUPS.map(group => (
+                      <div
+                        className="folder-keyword-group"
+                        key={group.role}
+                      >
+                        <div className="folder-keyword-group-title">
+                          <span>
+                            {group.title}
+                          </span>
+                          <strong>
+                            {groupedFolderKeywords[group.role].length}
+                          </strong>
+                        </div>
+
+                        {
+                          groupedFolderKeywords[group.role].length === 0
+                            ? (
+                                <p className="folder-keyword-empty">
+                                  {group.empty}
+                                </p>
+                              )
+                            : (
+                                <div className="folder-keyword-list">
+                                  {
+                                    groupedFolderKeywords[group.role].map(item => (
+                                      <span
+                                        className={`folder-keyword-pill ${item.role}`}
+                                        key={`${item.role}-${item.keyword}`}
+                                      >
+                                        <b>
+                                          {item.keyword}
+                                        </b>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            handleDeleteFolderKeyword(
+                                              item.keyword
+                                            )
+                                          }
+                                          disabled={folderKeywordSaving}
+                                          aria-label={`Remove ${item.keyword}`}
+                                        >
+                                          x
+                                        </button>
+                                      </span>
+                                    ))
+                                  }
+                                </div>
+                              )
+                        }
+                      </div>
+                    ))
+                  }
+                </div>
+              </section>
+
+              <section className="detail-section">
+                <h3>
                   Tags
                 </h3>
                 <div className="tag-row">
                   {
                     [
-                      ...(selectedDoc.titleTags || []),
-                      ...(selectedDoc.keywordTags || [])
+                      ...(inspectedDoc.titleTags || []),
+                      ...(inspectedDoc.keywordTags || [])
                     ]
                       .slice(0, 18)
                       .map(tag => (
@@ -1637,7 +2352,7 @@ function App() {
               </section>
 
               {
-                getQualityLabel(selectedDoc) === "Low OCR" && (
+                getQualityLabel(inspectedDoc) === "Low OCR" && (
                   <section className="warning-box">
                     OCR quality may be low. Topic keywords may work better than exact handwritten sentences.
                   </section>
@@ -1656,10 +2371,37 @@ function App() {
                   }
                 </pre>
               </section>
-            </aside>
-          )
-        }
+                </>
+              )
+              : (
+                  <div className="detail-empty">
+                    <p className="eyebrow">
+                      Inspector
+                    </p>
+                    <h2>
+                      Select a file
+                    </h2>
+                    <p className="muted">
+                      The app will show why the file belongs in its smart folder, confidence, OCR quality, keywords, and original path.
+                    </p>
+                  </div>
+                )
+          }
+        </aside>
       </main>
+        <footer className="local-footer">
+          <span>
+            <i />
+            All data is stored locally on your device.
+          </span>
+          <span>
+            On-device AI · Private · No cloud uploads
+          </span>
+          <span>
+            Version {APP_VERSION}
+          </span>
+        </footer>
+      </section>
     </div>
   );
 }

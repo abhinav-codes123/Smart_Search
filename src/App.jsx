@@ -2288,43 +2288,54 @@ function App() {
           </div>
 
           <div className="toolbar-search">
-            <input
-              value={query}
-              onChange={event =>
-                setQuery(
-                  event.target.value
+            <div className="search-input-wrap">
+              <input
+                value={query}
+                onChange={event =>
+                  setQuery(
+                    event.target.value
+                  )
+                }
+                onKeyDown={event => {
+                  if (event.key === "Enter") {
+                    runSearch();
+                  }
+                }}
+                placeholder="Search files by name, content, or keywords..."
+                className="search-input"
+              />
+              {
+                query.trim() ? (
+                  <button
+                    className="search-clear-button"
+                    type="button"
+                    aria-label="Clear search"
+                    title="Clear search"
+                    onClick={async () => {
+                      setQuery("");
+                      const docs =
+                        await refreshDocuments();
+                      setResults(docs);
+                    }}
+                  >
+                    x
+                  </button>
+                ) : (
+                  <span>
+                    ⌘K
+                  </span>
                 )
               }
-              onKeyDown={event => {
-                if (event.key === "Enter") {
-                  runSearch();
-                }
-              }}
-              placeholder="Search files by name, content, or keywords..."
-              className="search-input"
-            />
-            {
-              query.trim() ? (
-                <button
-                  className="search-clear-button"
-                  type="button"
-                  aria-label="Clear search"
-                  title="Clear search"
-                  onClick={async () => {
-                    setQuery("");
-                    const docs =
-                      await refreshDocuments();
-                    setResults(docs);
-                  }}
-                >
-                  x
-                </button>
-              ) : (
-                <span>
-                  ⌘K
-                </span>
-              )
-            }
+            </div>
+            <button
+              className="btn btn-primary search-submit-button"
+              type="button"
+              onClick={() =>
+                runSearch()
+              }
+            >
+              Search
+            </button>
           </div>
 
           <div className="upload-actions">

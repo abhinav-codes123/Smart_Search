@@ -1,130 +1,189 @@
 # Smart File Organiser
 
-An offline-first desktop app for finding and organizing messy local files by the content inside them, not just by file name.
+Smart File Organiser is a private, offline-first desktop app for searching and organizing messy local files by the content inside them, not only by file name.
 
-Smart File Organiser scans folders, extracts text from common document formats, runs local OCR on images and scanned PDFs, stores the index locally in SQLite, detects duplicate files by hash, and provides OCR-tolerant smart search. The long-term goal is safe automatic organization: the app should suggest groups and folder plans, explain why, and move files only after user approval.
+It scans files and folders, extracts text from common formats, OCRs images and scanned PDFs locally, stores the index in SQLite, detects duplicate uploads by file hash, generates tags/metadata, supports semantic search, and shows virtual smart folders without moving the original files.
 
-Built for the OSDHack 2026 theme: on-device AI. The core extraction, OCR, indexing, and search pipeline runs locally on the user's machine.
+This project is being built for the OSDHack 2026 theme: **On Device AI**. The core AI/search/OCR/organization workflow should run locally on the user's machine.
 
-## Why
+## For Claude Code
 
-Most laptops eventually become a pile of mixed files:
+If you are Claude Code or another coding agent, read [CLAUDE.md](CLAUDE.md) before editing.
 
-- lecture notes
-- screenshots
-- handwritten PDFs
-- assignments
-- certificates
-- spreadsheets
-- presentations
-- receipts
-- duplicate downloads
+That file contains the project architecture, safety rules, important commands, current implementation details, and the known decisions that should not be accidentally reversed.
 
-Traditional search works only when file names are good. This app builds a local intelligence layer over your files so you can search and eventually organize by actual content.
+## Product Goal
 
-## Current Features
+The app should help a user with thousands of mixed files:
 
-- Scan individual files or whole folders.
-- Extract text from:
-  - PDF
-  - image-only/scanned PDF
-  - PNG, JPG, JPEG
-  - DOCX
-  - PPTX
-  - XLSX
-  - ODT and other OpenDocument containers
-  - Markdown and plain text
-  - common text/code-like files
-- OCR image files and embedded images using Tesseract.js.
-- Render image-based PDF pages and OCR them locally.
-- Use embedded PDF text when available to avoid unnecessary OCR.
-- Run multi-pass OCR preprocessing for difficult scans and handwritten notes.
-- Queue remaining pages of large PDFs for background OCR.
-- Generate title tags, keyword tags, metadata, and coarse categories.
-- Detect duplicate files with SHA-256 file hashes.
-- Store documents, paths, pages, OCR jobs, tags, and search index data in SQLite.
-- Keep `electron/data/documents.json` as a development/debug snapshot.
-- Log indexing, OCR, duplicate hits, queue events, and failures to the console and Electron DevTools.
+- find files even when file names are bad
+- search inside PDFs, screenshots, notes, documents, presentations, spreadsheets, text, and code
+- understand what each file is about using local extraction and local AI
+- organize files virtually inside the app
+- eventually suggest safe physical organization plans
 
-## Privacy
+The app must not silently move, rename, delete, or rewrite original user files.
 
-- Files stay on the user's machine.
-- OCR runs locally.
-- Search runs locally.
-- The database is local SQLite.
-- No cloud OCR or cloud AI API is required for the core workflow.
-
-## Current Search
-
-The current search engine is a local JavaScript ranker. It scores:
-
-- file name
-- title tags
-- keyword tags
-- metadata
-- category
-- extracted/OCR text
-
-It includes fuzzy matching to tolerate OCR mistakes. This is good for the current prototype, but the next search phase will move ranking toward SQLite FTS over cleaned text for better performance with 5,000 to 10,000 files.
-
-## Planned Search Upgrade
-
-The next architecture will separate raw extraction from clean search text:
+Preferred organization flow:
 
 ```text
-original file/page
-  -> local extraction or OCR
-  -> raw text
-  -> cleaned text
-  -> keywords, title tags, category
-  -> SQLite FTS search index
+scan locally -> understand content -> suggest folders/tags -> explain why -> user approves -> optionally apply moves later
 ```
 
-Clean text will drive search and organization. Raw OCR text may be kept only for debugging, low-confidence pages, or reprocessing when cleanup rules improve.
+## Current Feature Set
+
+- Electron desktop app with React/Vite UI.
+- Upload individual files or whole folders.
+- Extract text from:
+  - PDF files with embedded text
+  - scanned/image-only PDFs
+  - PNG, JPG, JPEG, WebP, BMP, GIF, TIFF
+  - DOCX, PPTX, XLSX
+  - OpenDocument containers
+  - Markdown, plain text, and common code files
+- Local OCR with Tesseract.js.
+- PDF page rendering through PDF.js and `@napi-rs/canvas`.
+- Duplicate detection using SHA-256 file hashes.
+- SQLite source of truth for documents, paths, pages, jobs, tags, folders, FTS, and embeddings.
+- Optional JSON debug snapshot when explicitly enabled.
+- OCR queue for remaining pages of larger PDFs.
+- Thumbnail generation during upload for faster previews.
+- Persistent Python Plan B worker for YAKE/spaCy keywords and sentence-transformer embeddings.
+- Fast search and semantic search modes.
+- Top 30 semantic results by default.
+- Virtual smart folders inside the app.
+- User-added file tags.
+- User-created virtual folders.
+- Dark mode.
+- Console logging for extraction, duplicate hits, queue events, thumbnails, Plan B enrichment, and failures.
+
+## Architecture Overview
+
+```text
+User selects files/folder
+  -> Electron main process validates paths
+  -> file hash generated with SHA-256
+  -> duplicate hash check
+  -> textExtractor extracts/OCRs local content
+  -> database stores document, paths, pages, jobs, FTS data
+  -> Plan B worker enriches keywords + embeddings
+  -> organizer suggests virtual folders
+  -> React UI renders search, folders, previews, tags, and details
+```
+
+## Important Files
+
+| Area | Files |
+| --- | --- |
+| Electron entry + IPC | `electron/main.js`, `electron/preload.cjs` |
+| SQLite database and search APIs | `electron/database.js` |
+| Extraction and OCR | `electron/textExtractor.js` |
+| File hash/document identity | `electron/fileIdentity.js` |
+| Fast JS search ranker | `electron/searchEngine.js` |
+| Plan B Python worker bridge | `electron/planBService.js` |
+| Plan B worker | `python/plan_b_worker.py` |
+| Organizer logic | `src/utils/organizer.js` |
+| Tag/metadata/classifier utilities | `src/utils/tagGenerator.js`, `src/utils/extractMetadata.js`, `src/utils/classifier.js`, `src/utils/dictionary.js` |
+| React app | `src/App.jsx`, `src/App.css`, `src/main.jsx` |
+| Regression/benchmark scripts | `test/*.mjs`, `test/*.py` |
+| Agent handoff notes | `CLAUDE.md` |
 
 ## Storage
 
 SQLite is the source of truth.
 
-Main tables:
+Default development database:
 
-- `documents`
-- `document_paths`
-- `pages`
-- `ocr_jobs`
-- `tags`
-- `document_fts`
+```text
+electron/data/documents.sqlite
+```
 
-`documents.json` is only a temporary readable snapshot for development. It can be deleted once the app is ready.
+Local generated database files are ignored by git.
 
-## Background OCR Queue
+Important data concepts:
 
-Large PDFs should not freeze the app.
+- `documents`: one logical document per unique file hash
+- `document_paths`: all known paths for the same hash
+- `pages`: extracted/OCR text for page-based documents
+- `ocr_jobs`: background OCR jobs for remaining pages
+- `document_fts`: SQLite FTS search index
+- virtual folder tables: app-only folder organization
+- tag/override tables: user edits
+- embedding fields: semantic search vectors and metadata
 
-Current flow:
+`electron/data/documents.json` is not the source of truth. It is only a development/debug snapshot and is disabled by default. Enable it only when needed:
 
-1. Extract the first pages immediately.
-2. Save the document with status `indexing`.
-3. Queue remaining PDF pages.
-4. Process one OCR job at a time in the background.
-5. Update page text and search data as jobs finish.
+```bash
+SMART_SEARCH_WRITE_JSON_SNAPSHOT=1 npm run electron
+```
 
-This keeps the app usable while long handwritten or scanned PDFs continue indexing.
+## Search
 
-## Tech Stack
+There are two search paths:
 
-- Electron
-- React
-- Vite
-- Node.js
-- SQLite via `node:sqlite`
-- PDF.js / `pdfjs-dist`
-- Tesseract.js
-- JSZip
-- `@napi-rs/canvas`
-- Tailwind CSS
+1. **Fast search**
+   - SQLite FTS first
+   - JavaScript OCR-tolerant fuzzy ranker fallback
+   - scores file name, title tags, keyword tags, metadata, category, and extracted text
 
-## Getting Started
+2. **Semantic search**
+   - Uses Plan B embeddings generated during upload/enrichment
+   - Uses cached vectors when available
+   - Returns up to 30 results by default
+
+Useful environment variable:
+
+```bash
+SMART_SEARCH_SEMANTIC_TOP_K=30
+```
+
+## Plan B Local AI
+
+Plan B improves keyword extraction and semantic search using a persistent Python worker.
+
+It uses:
+
+- YAKE
+- spaCy
+- Sentence Transformers
+- FAISS when available
+
+Create/install the Python environment:
+
+```bash
+python3 -m venv .venv-planb
+.venv-planb/bin/python -m pip install -r python/requirements-planb.txt
+```
+
+Plan B defaults:
+
+- Python path: `.venv-planb/bin/python`
+- worker path: `python/plan_b_worker.py`
+- model: `sentence-transformers/all-MiniLM-L6-v2`
+
+Useful environment variables:
+
+```bash
+SMART_SEARCH_PLAN_B=0                  # disable Plan B
+SMART_SEARCH_PLAN_B_PERSISTENT=0       # disable persistent worker
+SMART_SEARCH_PLAN_B_TIMEOUT_MS=360000  # worker timeout
+SMART_SEARCH_PLAN_B_PYTHON=/path/to/python
+SMART_SEARCH_PLAN_B_WORKER=/path/to/plan_b_worker.py
+SMART_SEARCH_SEMANTIC_TOP_K=30
+```
+
+## OCR Behavior
+
+Current OCR philosophy:
+
+- Use one OCR pass per image.
+- For PDFs, prefer embedded text when available.
+- For image-only PDFs, render pages and OCR locally.
+- Do not repeatedly OCR the same image at multiple zoom levels by default.
+- For large PDFs, index initial useful content first and queue remaining page work.
+- Handwritten OCR is expected to be imperfect; the app should extract enough signal for search/organization and mark weak files for review.
+
+## Running The App
 
 Install dependencies:
 
@@ -132,7 +191,7 @@ Install dependencies:
 npm install
 ```
 
-Run the Vite dev server:
+Run the browser dev server:
 
 ```bash
 npm run dev
@@ -144,47 +203,59 @@ Run the Electron app:
 npm run electron
 ```
 
-## OCR Behavior
-
-Smart Search uses one local OCR pass per image. PDF pages are rendered at the
-normal page scale before OCR. This keeps indexing predictable and avoids the
-extra CPU cost we saw from repeated OCR passes on handwritten notes.
-
-Build the frontend:
+Build frontend:
 
 ```bash
 npm run build
 ```
 
-Build a desktop release:
+Build desktop release:
 
 ```bash
 npm run dist
 ```
 
-## Useful Scripts
+## Tests And Checks
 
-Run lint:
+Lint:
 
 ```bash
 npm run lint
 ```
 
-Run regression tests:
+Main regression test:
 
 ```bash
 npm test
 ```
 
-Run folder extraction smoke test:
+Folder extraction smoke test:
 
 ```bash
 npm run test:folder -- test1
 ```
 
+Plan B benchmark:
+
+```bash
+node test/plan-b-benchmark.mjs test1
+```
+
+Hackathon feature benchmark:
+
+```bash
+node test/hackathon-feature-benchmark.mjs test1
+```
+
+Semantic threshold benchmark:
+
+```bash
+.venv-planb/bin/python test/semantic_threshold_benchmark.py
+```
+
 ## Reset Local Index Data
 
-For experiments, quit the Electron app and remove local generated index files:
+Quit the Electron app first, then remove local generated database files:
 
 ```bash
 rm electron/data/documents.sqlite
@@ -193,30 +264,26 @@ rm electron/data/documents.sqlite-shm
 rm electron/data/documents.json
 ```
 
-The app will recreate an empty local database on the next launch.
+The app will recreate an empty local index on the next launch.
 
-## Roadmap
+## Safety Rules
 
-- Add cleaned text storage and OCR quality scoring.
-- Move search ranking to SQLite FTS over clean text.
-- Add page-level result previews.
-- Build virtual smart folders/groups.
-- Generate "why this group?" explanations.
-- Add safe file organization preview.
-- Add user-approved move/apply flow.
-- Add undo history for file moves.
-- Improve offline OCR preprocessing for handwritten notes.
-- Package polished macOS desktop release.
+- Never silently move, rename, delete, or rewrite original user files.
+- Virtual folders are app metadata only.
+- User tags and folder edits should update SQLite, not source files.
+- Duplicate uploads should reuse the same document hash/document identity and add paths, not duplicate content.
+- Keep all core OCR/search/AI behavior local for the hackathon theme.
+- Treat `electron/data/*` and test datasets as local/generated unless the user explicitly says otherwise.
 
-## Safety Principle
+## Current Roadmap
 
-The app should never silently move, rename, delete, or rewrite user files.
-
-Search can be aggressive. Organization must be conservative:
-
-```text
-scan locally -> understand content -> suggest groups -> explain -> user approves -> apply -> allow undo
-```
+- Improve folder organization quality with better keyword signals and user feedback.
+- Add clearer confidence/review workflows.
+- Add safe organization preview before physical moves.
+- Add undo/history if physical move support is introduced.
+- Continue improving previews without making list rendering laggy.
+- Improve offline OCR preprocessing only where it gives measurable benefit.
+- Package a polished desktop release.
 
 ## License
 

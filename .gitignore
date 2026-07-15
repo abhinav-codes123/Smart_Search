@@ -3,6 +3,7 @@ node_modules/
 .venv*/
 __pycache__/
 *.py[cod]
+data
 
 # Build outputs
 dist/
@@ -11,6 +12,10 @@ release/
 out/
 build/
 .vite/
+outputs/
+tmp/
+*.inspect.ndjson
+smart-file-organiser-ppt-slide-content.pdf
 
 # Logs
 logs/

@@ -21,40 +21,100 @@ import "./App.css";
 
 const SEARCH_VISIBLE_RESULTS = 30;
 const APP_VERSION = "1.0.0";
-const FOLDER_KEYWORD_ROLE_OPTIONS = [
-  {
-    value: "positive",
-    label: "Important"
-  },
-  {
-    value: "negative",
-    label: "Unrelated"
-  },
-  {
-    value: "ignored",
-    label: "Ignore"
-  }
-];
-const FOLDER_KEYWORD_GROUPS = [
-  {
-    role: "positive",
-    title: "Important",
-    empty: "No important keywords."
-  },
-  {
-    role: "negative",
-    title: "Unrelated",
-    empty: "No unrelated keywords."
-  },
-  {
-    role: "ignored",
-    title: "Ignored",
-    empty: "No ignored keywords."
-  }
-];
 
 const imageDataCache =
   new Map();
+
+function getUploadProgress(
+  fileIndex,
+  totalFiles,
+  filePhase = 0
+) {
+  if (!totalFiles) {
+    return 0;
+  }
+
+  return Math.min(
+    100,
+    Math.max(
+      0,
+      Math.round(
+        ((fileIndex + filePhase) / totalFiles) * 100
+      )
+    )
+  );
+}
+
+function normalizeVirtualFolder(folder) {
+  return {
+    id:
+      folder.id ||
+      folder.folderId,
+    name:
+      folder.name,
+    parentId:
+      folder.parentId ||
+      null,
+    path:
+      folder.path ||
+      folder.displayPath ||
+      folder.name,
+    source:
+      folder.source || "system",
+    sortOrder:
+      Number(folder.sortOrder || 0)
+  };
+}
+
+function buildFolderTree(flatFolders) {
+  const folders =
+    flatFolders
+      .map(
+        normalizeVirtualFolder
+      )
+      .filter(folder =>
+        folder.id
+      )
+      .sort((a, b) =>
+        a.sortOrder - b.sortOrder ||
+        a.path.localeCompare(b.path)
+      );
+  const byId =
+    new Map();
+  const roots = [];
+
+  for (
+    const folder
+    of folders
+  ) {
+    byId.set(
+      folder.id,
+      {
+        ...folder,
+        children: []
+      }
+    );
+  }
+
+  for (
+    const folder
+    of byId.values()
+  ) {
+    if (
+      folder.parentId &&
+      byId.has(folder.parentId)
+    ) {
+      byId
+        .get(folder.parentId)
+        .children
+        .push(folder);
+    } else {
+      roots.push(folder);
+    }
+  }
+
+  return roots;
+}
 
 const previewDocuments = [
   {
@@ -183,6 +243,7 @@ const fallbackElectronAPI = {
   selectFiles: async () => [],
   getImageData: async () => null,
   getFilePreviewData: async () => null,
+  getFilePreviewUrl: () => null,
   extractDocumentText: async () => ({
     success: false,
     error: "Electron preview mode"
@@ -223,6 +284,26 @@ const fallbackElectronAPI = {
     fallbackElectronAPI.searchDocuments(
       query
     ),
+  getVirtualFolders: async () =>
+    flattenVirtualFolders(
+      VIRTUAL_FOLDER_TREE
+    ),
+  saveVirtualFolder: async payload => ({
+    success: true,
+    folder:
+      payload,
+    folders:
+      flattenVirtualFolders(
+        VIRTUAL_FOLDER_TREE
+      )
+  }),
+  deleteVirtualFolder: async () => ({
+    success: true,
+    folders:
+      flattenVirtualFolders(
+        VIRTUAL_FOLDER_TREE
+      )
+  }),
   getFolderKeywords: async () => [
     {
       folderId: "exam-papers-jee",
@@ -256,6 +337,60 @@ const fallbackElectronAPI = {
       documents: 0
     }
   }),
+  saveDocumentFolderOverride: async () => ({
+    success: true,
+    overrides: [],
+    refreshed: {
+      documents: 0
+    }
+  }),
+  deleteDocumentFolderOverride: async () => ({
+    success: true,
+    overrides: [],
+    refreshed: {
+      documents: 0
+    }
+  }),
+  addDocumentKeywordTag: async (documentId, tag) => {
+    const document =
+      previewDocuments.find(item =>
+        item.documentId === documentId
+      );
+
+    return {
+      success: true,
+      document: {
+        ...document,
+        keywordTags: [
+          ...(document?.keywordTags || []),
+          tag
+        ]
+      }
+    };
+  },
+  deleteDocumentKeywordTag: async (documentId, tag) => {
+    const document =
+      previewDocuments.find(item =>
+        item.documentId === documentId
+      );
+
+    return {
+      success: true,
+      document: {
+        ...document,
+        keywordTags:
+          (document?.keywordTags || [])
+            .filter(item =>
+              item !== tag
+            ),
+        titleTags:
+          (document?.titleTags || [])
+            .filter(item =>
+              item !== tag
+            )
+      }
+    };
+  },
   getOcrQueueStatus: async () => ({
     pending: 0,
     processing: 0,
@@ -565,23 +700,43 @@ function buildDocumentFromExtraction(file, result) {
   );
 }
 
-function FilePreviewImage({ path }) {
+function FilePreviewImage({
+  path,
+  quality = "fast"
+}) {
+  const containerRef =
+    useRef(null);
+  const highQuality =
+    quality === "high";
+  const directPreviewUrl =
+    highQuality
+      ? null
+      : window
+          .electronAPI
+          .getFilePreviewUrl?.(
+            path
+          );
   const [
     previewSrc,
     setPreviewSrc
   ] = useState(() =>
-    imageDataCache.get(path) ?? null
+    imageDataCache.get(
+      `${quality}:${path}`
+    ) ||
+    null
   );
   const [
-    isVisible,
-    setIsVisible
+    directPreviewFailed,
+    setDirectPreviewFailed
   ] = useState(false);
-  const ref =
-    useRef(null);
+  const [
+    shouldLoadPreview,
+    setShouldLoadPreview
+  ] = useState(false);
 
   useEffect(() => {
     const element =
-      ref.current;
+      containerRef.current;
 
     if (!element) {
       return undefined;
@@ -589,7 +744,7 @@ function FilePreviewImage({ path }) {
 
     if (!("IntersectionObserver" in window)) {
       queueMicrotask(() =>
-        setIsVisible(true)
+        setShouldLoadPreview(true)
       );
       return undefined;
     }
@@ -602,13 +757,13 @@ function FilePreviewImage({ path }) {
               entry.isIntersecting
             )
           ) {
-            setIsVisible(true);
+            setShouldLoadPreview(true);
             observer.disconnect();
           }
         },
         {
           rootMargin:
-            "180px"
+            "240px"
         }
       );
 
@@ -622,12 +777,21 @@ function FilePreviewImage({ path }) {
   }, []);
 
   useEffect(() => {
-    if (!isVisible) {
+    if (!shouldLoadPreview) {
+      return undefined;
+    }
+
+    if (
+      directPreviewUrl &&
+      !directPreviewFailed
+    ) {
       return undefined;
     }
 
     const cached =
-      imageDataCache.get(path);
+      imageDataCache.get(
+        `${quality}:${path}`
+      );
 
     if (cached !== undefined) {
       return undefined;
@@ -638,30 +802,39 @@ function FilePreviewImage({ path }) {
     async function load() {
       let data = null;
 
-      if (
-        window
-          .electronAPI
-          .getFilePreviewData
-      ) {
-        data =
-          await window
+      try {
+        if (
+          window
             .electronAPI
-            .getFilePreviewData(
-              path
-            );
+            .getFilePreviewData
+        ) {
+          data =
+            await window
+              .electronAPI
+              .getFilePreviewData(
+                path,
+                {
+                  quality
+                }
+              );
+        }
+
+        if (!data) {
+          data =
+            await window
+              .electronAPI
+              .getImageData(path);
+        }
+      } catch {
+        data = null;
       }
 
-      if (!data) {
-        data =
-          await window
-            .electronAPI
-            .getImageData(path);
+      if (data) {
+        imageDataCache.set(
+          `${quality}:${path}`,
+          data
+        );
       }
-
-      imageDataCache.set(
-        path,
-        data
-      );
 
       if (!cancelled) {
         setPreviewSrc(data);
@@ -674,15 +847,25 @@ function FilePreviewImage({ path }) {
       cancelled = true;
     };
   }, [
-    isVisible,
-    path
+    directPreviewFailed,
+    directPreviewUrl,
+    shouldLoadPreview,
+    path,
+    quality
   ]);
 
-  if (!previewSrc) {
+  const activePreviewSrc =
+    shouldLoadPreview &&
+    directPreviewUrl &&
+    !directPreviewFailed
+      ? directPreviewUrl
+      : previewSrc;
+
+  if (!activePreviewSrc) {
     return (
       <div
         className="thumb-placeholder"
-        ref={ref}
+        ref={containerRef}
       >
         {getFileType(path).toUpperCase()}
       </div>
@@ -691,30 +874,38 @@ function FilePreviewImage({ path }) {
 
   return (
     <img
-      ref={ref}
-      src={previewSrc}
+      ref={containerRef}
+      src={activePreviewSrc}
       alt=""
+      onError={() => {
+        if (
+          activePreviewSrc === directPreviewUrl
+        ) {
+          setDirectPreviewFailed(true);
+          setPreviewSrc(null);
+        }
+      }}
     />
   );
 }
 
 function FileThumb({
   doc,
-  loadPreview = false
+  loadPreview = false,
+  previewRefreshKey = 0,
+  previewQuality = "fast"
 }) {
   const type =
     getFileType(doc.filePath);
 
   if (
-    loadPreview &&
-    [
-      "image",
-      "pdf"
-    ].includes(type)
+    loadPreview
   ) {
     return (
       <FilePreviewImage
+        key={`${doc.filePath}-${previewRefreshKey}-${previewQuality}`}
         path={doc.filePath}
+        quality={previewQuality}
       />
     );
   }
@@ -730,7 +921,9 @@ function FolderTree({
   folders,
   selectedFolderId,
   counts,
-  onSelect
+  onSelect,
+  collapsedFolderIds,
+  onToggle
 }) {
   return (
     <div className="folder-tree">
@@ -740,27 +933,48 @@ function FolderTree({
             key={folder.id}
             className="folder-node"
           >
-            <button
-              className={`folder-button ${selectedFolderId === folder.id ? "active" : ""}`}
-              onClick={() =>
-                onSelect(folder.id)
+            <div className="folder-row">
+              {
+                folder.children?.length > 0 ? (
+                  <button
+                    className="folder-toggle"
+                    type="button"
+                    aria-label={`${collapsedFolderIds.has(folder.id) ? "Expand" : "Collapse"} ${folder.name}`}
+                    onClick={() =>
+                      onToggle(folder.id)
+                    }
+                  >
+                    {collapsedFolderIds.has(folder.id) ? "›" : "⌄"}
+                  </button>
+                ) : (
+                  <span className="folder-toggle-spacer" />
+                )
               }
-            >
-              <span>
-                {folder.name}
-              </span>
-              <strong>
-                {counts[folder.id] || 0}
-              </strong>
-            </button>
+              <button
+                className={`folder-button ${selectedFolderId === folder.id ? "active" : ""}`}
+                onClick={() =>
+                  onSelect(folder.id)
+                }
+              >
+                <span>
+                  {folder.name}
+                </span>
+                <strong>
+                  {counts[folder.id] || 0}
+                </strong>
+              </button>
+            </div>
 
             {
-              folder.children?.length > 0 && (
+              folder.children?.length > 0 &&
+                !collapsedFolderIds.has(folder.id) && (
                 <FolderTree
                   folders={folder.children}
                   selectedFolderId={selectedFolderId}
                   counts={counts}
                   onSelect={onSelect}
+                  collapsedFolderIds={collapsedFolderIds}
+                  onToggle={onToggle}
                 />
               )
             }
@@ -789,6 +1003,24 @@ function App() {
     setViewMode
   ] = useState("compact");
   const [
+    colorMode,
+    setColorMode
+  ] = useState(() => {
+    if (
+      typeof window === "undefined" ||
+      !window.localStorage
+    ) {
+      return "light";
+    }
+
+    return (
+      window
+        .localStorage
+        .getItem("smart-file-organiser-theme") ||
+      "light"
+    );
+  });
+  const [
     sidebarOpen,
     setSidebarOpen
   ] = useState(true);
@@ -801,21 +1033,40 @@ function App() {
     setSelectedDoc
   ] = useState(null);
   const [
-    detailLoading,
-    setDetailLoading
-  ] = useState(false);
-  const [
     uploadProgress,
     setUploadProgress
   ] = useState(0);
+  const [
+    uploadStatus,
+    setUploadStatus
+  ] = useState({
+    current:
+      0,
+    total:
+      0,
+    fileName:
+      "",
+    saved:
+      0,
+    phase:
+      "Idle"
+  });
   const [
     isProcessing,
     setIsProcessing
   ] = useState(false);
   const [
+    isUploadPaused,
+    setIsUploadPaused
+  ] = useState(false);
+  const [
     isRefreshing,
     setIsRefreshing
   ] = useState(false);
+  const [
+    previewRefreshKey,
+    setPreviewRefreshKey
+  ] = useState(0);
   const [
     activity,
     setActivity
@@ -824,6 +1075,13 @@ function App() {
     currentTask,
     setCurrentTask
   ] = useState("Idle");
+  const uploadControlRef =
+    useRef({
+      action:
+        "idle"
+    });
+  const pausedUploadRef =
+    useRef(null);
   const [
     queueStatus,
     setQueueStatus
@@ -833,29 +1091,71 @@ function App() {
     setSearchMode
   ] = useState("fast");
   const [
-    folderKeywords,
-    setFolderKeywords
-  ] = useState([]);
-  const [
-    folderKeywordInput,
-    setFolderKeywordInput
+    documentTagInput,
+    setDocumentTagInput
   ] = useState("");
   const [
-    folderKeywordRole,
-    setFolderKeywordRole
-  ] = useState("positive");
-  const [
-    folderKeywordSaving,
-    setFolderKeywordSaving
+    documentTagSaving,
+    setDocumentTagSaving
   ] = useState(false);
+  const [
+    filtersOpen,
+    setFiltersOpen
+  ] = useState(false);
+  const [
+    fileTypeFilter,
+    setFileTypeFilter
+  ] = useState("all");
+  const [
+    qualityFilter,
+    setQualityFilter
+  ] = useState("all");
+  const [
+    virtualFolderList,
+    setVirtualFolderList
+  ] = useState(() =>
+    flattenVirtualFolders(
+      VIRTUAL_FOLDER_TREE
+    )
+  );
+  const [
+    folderStructureSaving,
+    setFolderStructureSaving
+  ] = useState(false);
+  const [
+    folderCreateOpen,
+    setFolderCreateOpen
+  ] = useState(false);
+  const [
+    newFolderName,
+    setNewFolderName
+  ] = useState("");
+  const [
+    collapsedFolderIds,
+    setCollapsedFolderIds
+  ] = useState(() =>
+    new Set()
+  );
 
   const virtualFolders =
     useMemo(
       () =>
-        flattenVirtualFolders(
-          VIRTUAL_FOLDER_TREE
+        virtualFolderList.map(
+          normalizeVirtualFolder
         ),
-      []
+      [
+        virtualFolderList
+      ]
+    );
+  const virtualFolderTree =
+    useMemo(
+      () =>
+        buildFolderTree(
+          virtualFolders
+        ),
+      [
+        virtualFolders
+      ]
     );
   const selectedFolder =
     useMemo(
@@ -868,6 +1168,21 @@ function App() {
         selectedFolderId
       ]
     );
+  function handleToggleFolder(folderId) {
+    setCollapsedFolderIds(current => {
+      const next =
+        new Set(current);
+
+      if (next.has(folderId)) {
+        next.delete(folderId);
+      } else {
+        next.add(folderId);
+      }
+
+      return next;
+    });
+  }
+
   const folderCounts =
     useMemo(
       () => {
@@ -910,6 +1225,18 @@ function App() {
           )
             return false;
 
+          if (
+            fileTypeFilter !== "all" &&
+            getFileType(doc.filePath) !== fileTypeFilter
+          )
+            return false;
+
+          if (
+            qualityFilter !== "all" &&
+            getQualityClass(doc) !== qualityFilter
+          )
+            return false;
+
           return true;
         });
 
@@ -920,7 +1247,9 @@ function App() {
       },
       [
         results,
-        selectedFolderId
+        selectedFolderId,
+        fileTypeFilter,
+        qualityFilter
       ]
     );
   const displayedResults =
@@ -937,92 +1266,6 @@ function App() {
         query
       ]
     );
-  const dashboardStats =
-    useMemo(
-      () => {
-        const reviewCount =
-          documents.filter(doc =>
-            getOrganization(doc)
-              ?.needsReview
-          ).length;
-        const indexedPages =
-          documents.reduce(
-            (sum, doc) =>
-              sum +
-              Number(
-                doc.indexedPages ||
-                doc.pages?.length ||
-                0
-              ),
-            0
-          );
-        const totalPages =
-          documents.reduce(
-            (sum, doc) =>
-              sum +
-              Number(
-                doc.totalPages ||
-                doc.indexedPages ||
-                doc.pages?.length ||
-                0
-              ),
-            0
-          );
-        const embeddings =
-          documents.filter(doc =>
-            doc.semanticEmbedding?.hasVector ||
-            doc.semanticEmbedding?.vector?.length
-          ).length;
-
-        return [
-          {
-            label: "Files Indexed",
-            value:
-              documents.length
-          },
-          {
-            label: "Pages Found",
-            value:
-              totalPages
-          },
-          {
-            label: "Pages Indexed",
-            value:
-              indexedPages
-          },
-          {
-            label: "Need Review",
-            value:
-              reviewCount
-          },
-          {
-            label: "Embeddings Ready",
-            value:
-              embeddings
-          }
-        ];
-      },
-      [documents]
-    );
-  const groupedFolderKeywords =
-    useMemo(
-      () => ({
-        positive:
-          folderKeywords.filter(item =>
-            item.role === "positive"
-          ),
-        negative:
-          folderKeywords.filter(item =>
-            item.role === "negative"
-          ),
-        ignored:
-          folderKeywords.filter(item =>
-            item.role === "ignored"
-          )
-      }),
-      [folderKeywords]
-    );
-
   function addActivity(event) {
     setActivity(prev => [
       {
@@ -1053,6 +1296,23 @@ function App() {
     }
 
     return docs;
+  }
+
+  async function refreshVirtualFolders() {
+    const folders =
+      await window
+        .electronAPI
+        .getVirtualFolders?.();
+
+    if (folders?.length) {
+      setVirtualFolderList(
+        folders.map(
+          normalizeVirtualFolder
+        )
+      );
+    }
+
+    return folders || [];
   }
 
   async function handleManualRefresh() {
@@ -1107,11 +1367,13 @@ function App() {
     async function loadInitialState() {
       const [
         docs,
-        status
+        status,
+        folders
       ] =
         await Promise.all([
           window.electronAPI.getDocuments(),
-          window.electronAPI.getOcrQueueStatus()
+          window.electronAPI.getOcrQueueStatus(),
+          window.electronAPI.getVirtualFolders?.()
         ]);
 
       if (cancelled) {
@@ -1126,6 +1388,13 @@ function App() {
       setDocuments(hydratedDocs);
       setResults(hydratedDocs);
       setQueueStatus(status || {});
+      if (folders?.length) {
+        setVirtualFolderList(
+          folders.map(
+            normalizeVirtualFolder
+          )
+        );
+      }
     }
 
     loadInitialState();
@@ -1140,7 +1409,7 @@ function App() {
       window
         .electronAPI
         .onSmartSearchLog?.(entry => {
-          if (
+          const trackedEvents =
             [
               "document.extract.skipped-duplicate",
               "database.document.duplicate-hit",
@@ -1153,8 +1422,30 @@ function App() {
               "planb.search.failed",
               "database.job.queued",
               "ocr.job.failed",
-              "ocr.job.completed"
-            ].includes(entry.event)
+              "ocr.job.completed",
+              "preview.thumbnail.cache-hit",
+              "preview.thumbnail.queued",
+              "preview.thumbnail.completed",
+              "preview.thumbnail.unavailable",
+              "preview.thumbnail.failed",
+              "preview.thumbnail.schedule-failed"
+            ];
+
+          if (
+            entry.event ===
+              "preview.thumbnail.completed" ||
+            entry.event ===
+              "preview.thumbnail.cache-hit"
+          ) {
+            setPreviewRefreshKey(key =>
+              key + 1
+            );
+          }
+
+          if (
+            trackedEvents.includes(
+              entry.event
+            )
           ) {
             addActivity({
               level:
@@ -1181,213 +1472,432 @@ function App() {
     };
   }, [refreshQueue]);
 
-  useEffect(() => {
-    let cancelled = false;
+  async function refreshAfterOrganizationChange() {
+    const docs =
+      await refreshDocuments();
 
-    async function loadFolderKeywords() {
-      if (
-        !selectedFolderId ||
-        selectedFolderId === "all-files"
-      ) {
-        setFolderKeywords([]);
-        return;
-      }
+    if (!query.trim()) {
+      setResults(docs);
+    }
 
-      const keywords =
-        await window
-          .electronAPI
-          .getFolderKeywords?.(
-            selectedFolderId
-          );
-
-      if (!cancelled) {
-        setFolderKeywords(
-          keywords || []
+    if (selectedDoc) {
+      const refreshedSelected =
+        docs.find(doc =>
+          doc.documentId === selectedDoc.documentId
         );
+
+      if (refreshedSelected) {
+        setSelectedDoc(refreshedSelected);
       }
     }
 
-    loadFolderKeywords();
+    return docs;
+  }
 
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedFolderId]);
+  function applyUpdatedDocument(document) {
+    const updatedDocument =
+      hydrateDocument(
+        document
+      );
 
-  async function handleSaveFolderKeyword(event) {
+    setSelectedDoc(
+      updatedDocument
+    );
+    setDocuments(current =>
+      current.map(item =>
+        item.documentId === updatedDocument.documentId
+          ? updatedDocument
+          : item
+      )
+    );
+    setResults(current =>
+      current.map(item =>
+        item.documentId === updatedDocument.documentId
+          ? updatedDocument
+          : item
+      )
+    );
+  }
+
+  async function handleAddDocumentTag(event) {
     event.preventDefault();
 
-    const keyword =
-      folderKeywordInput.trim();
-
     if (
-      !keyword ||
-      !selectedFolder ||
-      selectedFolder.id === "all-files"
+      !inspectedDoc ||
+      !documentTagInput.trim()
     ) {
       return;
     }
 
-    setFolderKeywordSaving(true);
+    const tag =
+      documentTagInput.trim();
+    setDocumentTagSaving(true);
 
     try {
       const result =
         await window
           .electronAPI
-          .saveFolderKeyword?.({
+          .addDocumentKeywordTag?.(
+            inspectedDoc.documentId,
+            tag
+          );
+
+      if (result?.success === false) {
+        addActivity({
+          level: "error",
+          title: "Tag add failed",
+          detail:
+            result.error || tag
+        });
+        return;
+      }
+
+      setDocumentTagInput("");
+      if (result?.document) {
+        applyUpdatedDocument(
+          result.document
+        );
+      }
+      await refreshAfterOrganizationChange();
+      addActivity({
+        level: "info",
+        title: "Tag added",
+        detail:
+          `${inspectedDoc.fileName}: ${tag}`
+      });
+    } finally {
+      setDocumentTagSaving(false);
+    }
+  }
+
+  async function handleDeleteDocumentTag(tag) {
+    if (
+      !inspectedDoc ||
+      !tag
+    ) {
+      return;
+    }
+
+    const confirmed =
+      window.confirm(
+        `Delete tag "${tag}" from "${inspectedDoc.fileName}"?`
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setDocumentTagSaving(true);
+
+    try {
+      const result =
+        await window
+          .electronAPI
+          .deleteDocumentKeywordTag?.(
+            inspectedDoc.documentId,
+            tag
+          );
+
+      if (result?.success === false) {
+        addActivity({
+          level: "error",
+          title: "Tag delete failed",
+          detail:
+            result.error || tag
+        });
+        return;
+      }
+
+      if (result?.document) {
+        applyUpdatedDocument(
+          result.document
+        );
+      }
+      await refreshAfterOrganizationChange();
+      addActivity({
+        level: "info",
+        title: "Tag deleted",
+        detail:
+          `${inspectedDoc.fileName}: ${tag}`
+      });
+    } finally {
+      setDocumentTagSaving(false);
+    }
+  }
+
+  function handleOpenCreateFolder() {
+    setNewFolderName("");
+    setFolderCreateOpen(true);
+  }
+
+  async function handleCreateVirtualFolder(event) {
+    event.preventDefault();
+
+    const folderName =
+      newFolderName.trim();
+
+    if (
+      !folderName
+    ) {
+      return;
+    }
+
+    setFolderStructureSaving(true);
+
+    try {
+      const result =
+        await window
+          .electronAPI
+          .saveVirtualFolder?.({
             folderId:
-              selectedFolder.id,
-            keyword,
-            role:
-              folderKeywordRole,
-            weight: 1
+              null,
+            name:
+              folderName,
+            parentId:
+              selectedFolder?.id === "all-files"
+                ? null
+                : selectedFolder?.id || null
           });
 
       if (result?.success === false) {
         addActivity({
           level: "error",
-          title: "Folder keyword failed",
+          title: "Folder save failed",
           detail:
-            result.error || keyword
+            result.error || folderName
         });
         return;
       }
 
-      setFolderKeywordInput("");
-      setFolderKeywords(
-        result?.overrides || []
-      );
-      await refreshDocuments();
+      await refreshVirtualFolders();
+      await refreshAfterOrganizationChange();
+      setFolderCreateOpen(false);
+      setNewFolderName("");
       addActivity({
         level: "info",
-        title: "Folder keyword saved",
+        title: "Folder created",
         detail:
-          `${selectedFolder.name}: ${keyword}`
+          folderName
       });
     } finally {
-      setFolderKeywordSaving(false);
+      setFolderStructureSaving(false);
     }
   }
 
-  async function handleDeleteFolderKeyword(keyword) {
+  async function handleDeleteVirtualFolder() {
     if (
       !selectedFolder ||
       selectedFolder.id === "all-files"
     ) {
+      addActivity({
+        level: "warn",
+        title: "Folder delete blocked",
+        detail:
+          "All Files is the root view and cannot be deleted."
+      });
       return;
     }
 
-    setFolderKeywordSaving(true);
+    const confirmed =
+      window.confirm(
+        `Delete folder "${selectedFolder.name}"?\n\nFiles will stay in their original locations. Only this virtual folder will be removed.`
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setFolderStructureSaving(true);
 
     try {
       const result =
         await window
           .electronAPI
-          .deleteFolderKeyword?.(
-            selectedFolder.id,
-            keyword
+          .deleteVirtualFolder?.(
+            selectedFolder.id
           );
 
       if (result?.success === false) {
         addActivity({
           level: "error",
-          title: "Folder keyword delete failed",
+          title: "Folder delete failed",
           detail:
-            result.error || keyword
+            result.error || selectedFolder.name
         });
         return;
       }
 
-      setFolderKeywords(
-        result?.overrides || []
-      );
-      await refreshDocuments();
+      setSelectedFolderId("all-files");
+      await refreshVirtualFolders();
+      await refreshAfterOrganizationChange();
       addActivity({
-        level: "info",
-        title: "Folder keyword removed",
+        level: "warn",
+        title: "Folder deleted",
         detail:
-          `${selectedFolder.name}: ${keyword}`
+          selectedFolder.name
       });
     } finally {
-      setFolderKeywordSaving(false);
+      setFolderStructureSaving(false);
     }
   }
 
-  useEffect(() => {
-    if (
-      !selectedDoc?.documentId ||
-      selectedDoc.text ||
-      selectedDoc.cleanText ||
-      selectedDoc.pages?.length
-    ) {
-      return undefined;
+  function handlePauseUpload() {
+    if (!isProcessing) {
+      return;
     }
 
-    let cancelled = false;
+    uploadControlRef.current.action =
+      "pause";
+    setUploadStatus(status => ({
+      ...status,
+      phase:
+        "Pausing after current file"
+    }));
+    setCurrentTask(
+      "Pausing after current file"
+    );
+  }
 
-    async function loadDetail() {
-      setDetailLoading(true);
+  function handleStopUpload() {
+    const wasPaused =
+      isUploadPaused &&
+      !isProcessing;
 
-      try {
-        const detail =
-          await window
-            .electronAPI
-            .getDocumentDetail(
-              selectedDoc.documentId
-            );
+    uploadControlRef.current.action =
+      wasPaused
+        ? "idle"
+        : "stop";
+    pausedUploadRef.current =
+      null;
+    setIsUploadPaused(false);
+    setUploadStatus(status => ({
+      ...status,
+      phase:
+        "Stopping"
+    }));
+    setCurrentTask(
+      wasPaused
+        ? "Upload stopped"
+        : "Stopping upload"
+    );
 
-        if (
-          !cancelled &&
-          detail
-        ) {
-          setSelectedDoc(current =>
-            current?.documentId ===
-              selectedDoc.documentId
-              ? hydrateDocument({
-                  ...current,
-                  ...detail
-                })
-              : current
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setDetailLoading(false);
-        }
+    if (wasPaused) {
+      addActivity({
+        level: "warn",
+        title: "Indexing stopped",
+        detail:
+          "Paused upload was cleared"
+      });
+    }
+  }
+
+  async function handleResumeUpload() {
+    const pausedUpload =
+      pausedUploadRef.current;
+
+    if (!pausedUpload) {
+      return;
+    }
+
+    await processFiles(
+      pausedUpload.files,
+      {
+        startIndex:
+          pausedUpload.nextIndex,
+        keepStatus:
+          true
       }
-    }
+    );
+  }
 
-    loadDetail();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    selectedDoc?.cleanText,
-    selectedDoc?.documentId,
-    selectedDoc?.pages?.length,
-    selectedDoc?.text
-  ]);
-
-  async function processFiles(files) {
-    if (!files.length)
+  async function processFiles(
+    files,
+    options = {}
+  ) {
+    if (
+      !files.length ||
+      isProcessing
+    )
       return;
 
+    const {
+      startIndex = 0,
+      keepStatus = false
+    } = options;
+
+    uploadControlRef.current.action =
+      "running";
+    pausedUploadRef.current =
+      null;
+    setIsUploadPaused(false);
     setIsProcessing(true);
-    setUploadProgress(0);
+    if (!keepStatus) {
+      setUploadProgress(0);
+      setUploadStatus({
+        current:
+          0,
+        total:
+          files.length,
+        fileName:
+          "",
+        saved:
+          0,
+        phase:
+          "Preparing"
+      });
+    } else {
+      setUploadProgress(
+        getUploadProgress(
+          startIndex,
+          files.length,
+          0
+        )
+      );
+      setUploadStatus(status => ({
+        ...status,
+        current:
+          startIndex + 1,
+        total:
+          files.length,
+        phase:
+          "Resuming"
+      }));
+    }
     setCurrentTask("Preparing files");
     addActivity({
       level: "info",
-      title: "Indexing started",
-      detail: `${files.length} file${files.length === 1 ? "" : "s"} selected`
+      title:
+        keepStatus
+          ? "Indexing resumed"
+          : "Indexing started",
+      detail:
+        keepStatus
+          ? `Continuing from file ${startIndex + 1} of ${files.length}`
+          : `${files.length} file${files.length === 1 ? "" : "s"} selected`
     });
 
     const processedDocs = [];
 
-    for (let index = 0; index < files.length; index++) {
+    for (let index = startIndex; index < files.length; index++) {
       const file =
         files[index];
 
+      setUploadStatus(status => ({
+        ...status,
+        current:
+          index + 1,
+        fileName:
+          file.name,
+        phase:
+          "Extracting"
+      }));
+      setUploadProgress(
+        getUploadProgress(
+          index,
+          files.length,
+          0
+        )
+      );
       setCurrentTask(
         `Extracting ${file.name}`
       );
@@ -1413,8 +1923,26 @@ function App() {
             detail:
               `${file.name}: ${result.error}`
           });
+          setUploadStatus(status => ({
+            ...status,
+            phase:
+              "Failed"
+          }));
           continue;
         }
+
+        setUploadStatus(status => ({
+          ...status,
+          phase:
+            "Saving"
+        }));
+        setUploadProgress(
+          getUploadProgress(
+            index,
+            files.length,
+            0.65
+          )
+        );
 
         if (result.duplicate) {
           addActivity({
@@ -1442,15 +1970,74 @@ function App() {
               document
             );
 
-        processedDocs.push(
+        setUploadStatus(status => ({
+          ...status,
+          phase:
+            "Updating library"
+        }));
+        setUploadProgress(
+          getUploadProgress(
+            index,
+            files.length,
+            0.9
+          )
+        );
+
+        const savedDocument =
           saved?.success === false
             ? document
             : saved?.document ||
               {
                 ...document,
                 ...(saved || {})
-              }
+              };
+
+        processedDocs.push(
+          savedDocument
         );
+        setUploadStatus(status => ({
+          ...status,
+          saved:
+            status.saved + 1,
+          phase:
+            "Indexed"
+        }));
+
+        setDocuments(current => {
+          const hydrated =
+            hydrateDocument(
+              savedDocument
+            );
+          const withoutExisting =
+            current.filter(item =>
+              item.documentId !==
+                hydrated.documentId
+            );
+
+          return [
+            hydrated,
+            ...withoutExisting
+          ];
+        });
+
+        if (!query.trim()) {
+          setResults(current => {
+            const hydrated =
+              hydrateDocument(
+                savedDocument
+              );
+            const withoutExisting =
+              current.filter(item =>
+                item.documentId !==
+                  hydrated.documentId
+              );
+
+            return [
+              hydrated,
+              ...withoutExisting
+            ];
+          });
+        }
 
         if (saved?.planB?.status === "done") {
           addActivity({
@@ -1488,15 +2075,92 @@ function App() {
         });
       } finally {
         setUploadProgress(
-          Math.round(
-            ((index + 1) / files.length) * 100
+          getUploadProgress(
+            index,
+            files.length,
+            1
           )
         );
         await refreshQueue();
       }
+
+      const nextIndex =
+        index + 1;
+      const requestedAction =
+        uploadControlRef.current.action;
+
+      if (
+        requestedAction === "pause" &&
+        nextIndex < files.length
+      ) {
+        pausedUploadRef.current = {
+          files,
+          nextIndex
+        };
+        setIsProcessing(false);
+        setIsUploadPaused(true);
+        setUploadStatus(status => ({
+          ...status,
+          current:
+            nextIndex,
+          phase:
+            "Paused"
+        }));
+        setCurrentTask(
+          `Paused. ${files.length - nextIndex} file${files.length - nextIndex === 1 ? "" : "s"} remaining`
+        );
+        addActivity({
+          level: "info",
+          title: "Indexing paused",
+          detail:
+            `${files.length - nextIndex} file${files.length - nextIndex === 1 ? "" : "s"} remaining`
+        });
+
+        const docs =
+          await refreshDocuments();
+        if (!query.trim()) {
+          setResults(docs);
+        }
+        return;
+      }
+
+      if (requestedAction === "stop") {
+        uploadControlRef.current.action =
+          "idle";
+        pausedUploadRef.current =
+          null;
+        setIsUploadPaused(false);
+        setIsProcessing(false);
+        setUploadStatus(status => ({
+          ...status,
+          phase:
+            "Stopped"
+        }));
+        setCurrentTask(
+          "Upload stopped"
+        );
+        addActivity({
+          level: "warn",
+          title: "Indexing stopped",
+          detail:
+            `${files.length - nextIndex} file${files.length - nextIndex === 1 ? "" : "s"} skipped`
+        });
+
+        const docs =
+          await refreshDocuments();
+        if (!query.trim()) {
+          setResults(docs);
+        }
+        return;
+      }
     }
 
     setCurrentTask("Refreshing library");
+    uploadControlRef.current.action =
+      "idle";
+    pausedUploadRef.current =
+      null;
+    setIsUploadPaused(false);
     const docs =
       await refreshDocuments();
     setResults(
@@ -1505,6 +2169,18 @@ function App() {
         : docs
     );
     setIsProcessing(false);
+    setUploadStatus({
+      current:
+        0,
+      total:
+        0,
+      fileName:
+        "",
+      saved:
+        0,
+      phase:
+        "Idle"
+    });
     setCurrentTask("Idle");
     addActivity({
       level: "info",
@@ -1570,19 +2246,23 @@ function App() {
 
   const inspectedDoc =
     selectedDoc || null;
-  const selectedText =
-    inspectedDoc?.cleanText ||
-    inspectedDoc?.text ||
-    "";
-  const selectedOrganization =
-    inspectedDoc
-      ? getOrganization(
-          inspectedDoc
-        )
-      : null;
+
+  useEffect(() => {
+    window
+      .localStorage
+      ?.setItem(
+        "smart-file-organiser-theme",
+        colorMode
+      );
+  }, [
+    colorMode
+  ]);
 
   return (
-    <div className="app-shell">
+    <div
+      className="app-shell"
+      data-theme={colorMode}
+    >
       <section className="app-window">
         <header className="topbar">
           <div className="brand-block">
@@ -1623,23 +2303,42 @@ function App() {
               placeholder="Search files by name, content, or keywords..."
               className="search-input"
             />
-            <span>
-              ⌘K
-            </span>
+            {
+              query.trim() ? (
+                <button
+                  className="search-clear-button"
+                  type="button"
+                  aria-label="Clear search"
+                  title="Clear search"
+                  onClick={async () => {
+                    setQuery("");
+                    const docs =
+                      await refreshDocuments();
+                    setResults(docs);
+                  }}
+                >
+                  x
+                </button>
+              ) : (
+                <span>
+                  ⌘K
+                </span>
+              )
+            }
           </div>
 
           <div className="upload-actions">
             <button
               className="btn btn-secondary upload-main"
               onClick={handleFileSelect}
-              disabled={isProcessing}
+              disabled={isProcessing || isUploadPaused}
             >
               Upload Files
             </button>
             <button
               className="btn btn-secondary upload-main"
               onClick={handleFolderSelect}
-              disabled={isProcessing}
+              disabled={isProcessing || isUploadPaused}
             >
               Folder
             </button>
@@ -1661,53 +2360,124 @@ function App() {
             Semantic Search
           </label>
 
-          <div className="view-toggle toolbar-view-toggle">
-            <button
-              className={viewMode === "compact" ? "active" : ""}
-              onClick={() =>
-                setViewMode("compact")
-              }
-            >
-              Compact
-            </button>
-            <button
-              className={viewMode === "list" ? "active" : ""}
-              onClick={() =>
-                setViewMode("list")
-              }
-            >
-              List
-            </button>
-          </div>
+          <button
+            className="theme-toggle"
+            type="button"
+            aria-label={`Switch to ${colorMode === "dark" ? "light" : "dark"} mode`}
+            onClick={() =>
+              setColorMode(mode =>
+                mode === "dark"
+                  ? "light"
+                  : "dark"
+              )
+            }
+          >
+            <span aria-hidden="true">
+              {colorMode === "dark" ? "☀" : "☾"}
+            </span>
+            {colorMode === "dark" ? "Light" : "Dark"}
+          </button>
+
         </header>
 
-        <section className="stats-strip">
-          {
-            dashboardStats.map(stat => (
-              <div
-                className="stat-item"
-                key={stat.label}
-              >
-                <span className="stat-icon" aria-hidden="true" />
-                <strong>
-                  {stat.value}
-                </strong>
-                <small>
-                  {stat.label}
-                </small>
-              </div>
-            ))
-          }
-          <div className="stat-item processing-stat">
-            <span className="stat-icon success" aria-hidden="true" />
+        <section className="project-info-strip">
+          <div>
             <strong>
-              {isProcessing ? "Processing" : "All processing is on-device"}
+              Local Smart File Organiser
             </strong>
-            <small>
-              Private · Fast · Secure
-            </small>
+            <span>
+              Files stay in their original location. This app builds private smart folders, tags, previews, and search locally on your device.
+            </span>
+          </div>
+          <div className="project-info-metrics">
+            <span>
+              {documents.length} files indexed
+            </span>
+            <span>
+              {queueTotal} background jobs
+            </span>
+            <span>
+              {searchMode === "planB" ? "Semantic search on" : "Fast search on"}
+            </span>
           </div>
         </section>
+
+        {
+          (isProcessing || isUploadPaused) && (
+            <section className="live-progress-panel">
+              <div>
+                <strong>
+                  {isUploadPaused
+                    ? "Upload paused"
+                    : "Uploading and indexing"}
+                </strong>
+                <span>
+                  File{" "}
+                  {uploadStatus.current || 1}
+                  {" "}
+                  of{" "}
+                  {uploadStatus.total || 1}
+                  {" "}
+                  ·
+                  {" "}
+                  {uploadStatus.saved}
+                  {" "}
+                  saved
+                </span>
+              </div>
+
+              <p>
+                {currentTask}
+              </p>
+
+              <div className="progress live-progress">
+                <div
+                  className="progress-bar"
+                  style={{
+                    width:
+                      `${uploadProgress}%`
+                  }}
+                />
+              </div>
+
+              <div className="upload-control-row">
+                {
+                  isUploadPaused ? (
+                    <button
+                      className="btn btn-primary"
+                      type="button"
+                      onClick={handleResumeUpload}
+                    >
+                      Resume
+                    </button>
+                  ) : (
+                    <button
+                      className="btn btn-secondary"
+                      type="button"
+                      onClick={handlePauseUpload}
+                    >
+                      Pause
+                    </button>
+                  )
+                }
+                <button
+                  className="btn btn-danger"
+                  type="button"
+                  onClick={handleStopUpload}
+                >
+                  Stop
+                </button>
+              </div>
+
+              <small>
+                {uploadStatus.phase || "Preparing"}
+                {uploadStatus.fileName
+                  ? ` · ${uploadStatus.fileName}`
+                  : ""}
+              </small>
+            </section>
+          )
+        }
 
       <main className={`layout ${sidebarOpen ? "" : "sidebar-collapsed"} ${inspectedDoc ? "" : "inspector-closed"}`}>
         <aside className="side-panel">
@@ -1782,17 +2552,91 @@ function App() {
               <h2>
                 SMART FOLDERS
               </h2>
-              <span>
-                +
-              </span>
+              <div className="folder-actions">
+                <button
+                  className="tiny-action"
+                  type="button"
+                  disabled={folderStructureSaving}
+                  title="Add folder inside selected folder"
+                  onClick={handleOpenCreateFolder}
+                >
+                  +
+                </button>
+                <button
+                  className="tiny-action danger"
+                  type="button"
+                  disabled={
+                    folderStructureSaving ||
+                    !selectedFolder ||
+                    selectedFolder.id === "all-files"
+                  }
+                  title="Delete selected folder"
+                  onClick={handleDeleteVirtualFolder}
+                >
+                  -
+                </button>
+              </div>
             </div>
 
-            <FolderTree
-              folders={VIRTUAL_FOLDER_TREE}
-              selectedFolderId={selectedFolderId}
-              counts={folderCounts}
-              onSelect={setSelectedFolderId}
-            />
+            {
+              folderCreateOpen && (
+                <form
+                  className="folder-create-form"
+                  onSubmit={handleCreateVirtualFolder}
+                >
+                  <span>
+                    Inside {selectedFolder?.id === "all-files" || !selectedFolder ? "Smart Folders" : selectedFolder.name}
+                  </span>
+                  <div>
+                    <input
+                      value={newFolderName}
+                      onChange={event =>
+                        setNewFolderName(
+                          event.target.value
+                        )
+                      }
+                      placeholder="Folder name"
+                      autoFocus
+                      disabled={folderStructureSaving}
+                    />
+                    <button
+                      className="tiny-action"
+                      type="submit"
+                      disabled={
+                        folderStructureSaving ||
+                        !newFolderName.trim()
+                      }
+                      title="Create folder"
+                    >
+                      ✓
+                    </button>
+                    <button
+                      className="tiny-action"
+                      type="button"
+                      disabled={folderStructureSaving}
+                      title="Cancel"
+                      onClick={() => {
+                        setFolderCreateOpen(false);
+                        setNewFolderName("");
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                </form>
+              )
+            }
+
+            <div className="folder-tree-scroll">
+              <FolderTree
+                folders={virtualFolderTree}
+                selectedFolderId={selectedFolderId}
+                counts={folderCounts}
+                onSelect={setSelectedFolderId}
+                collapsedFolderIds={collapsedFolderIds}
+                onToggle={handleToggleFolder}
+              />
+            </div>
           </section>
 
           <section className="panel-section activity-section">
@@ -1836,30 +2680,151 @@ function App() {
 
         <section className="workspace">
           <section className="file-pane-header">
-            <div>
-              <span className="pane-folder-icon" aria-hidden="true" />
-              <h2>
-                {selectedFolder?.path || "All Files"}
-              </h2>
-              <p>
-                {displayedResults.length} file{displayedResults.length === 1 ? "" : "s"}
-              </p>
+            <div className="file-pane-title-row">
+              <div className="file-pane-title">
+                <span className="pane-folder-icon" aria-hidden="true" />
+                <h2>
+                  {selectedFolder?.path || "All Files"}
+                </h2>
+                <p>
+                  {displayedResults.length} file{displayedResults.length === 1 ? "" : "s"}
+                </p>
+              </div>
+
+              <div className="pane-actions">
+                <button
+                  className={`filter-button ${filtersOpen ? "active" : ""}`}
+                  type="button"
+                  aria-expanded={filtersOpen}
+                  onClick={() =>
+                    setFiltersOpen(open =>
+                      !open
+                    )
+                  }
+                >
+                  <span aria-hidden="true">
+                    ≡
+                  </span>
+                  Filter
+                </button>
+
+                <div className="view-toggle pane-view-toggle">
+                <button
+                  className={viewMode === "compact" ? "active" : ""}
+                  onClick={() =>
+                    setViewMode("compact")
+                  }
+                >
+                  Compact
+                </button>
+                <button
+                  className={viewMode === "list" ? "active" : ""}
+                  onClick={() =>
+                    setViewMode("list")
+                  }
+                >
+                  List
+                </button>
+                </div>
+                <button
+                  className="refresh-button"
+                  type="button"
+                  onClick={handleManualRefresh}
+                  disabled={isRefreshing}
+                  aria-label="Refresh files"
+                  title="Refresh files"
+                >
+                  <span aria-hidden="true">
+                    ↻
+                  </span>
+                  {isRefreshing ? "Refreshing" : "Refresh"}
+                </button>
+              </div>
             </div>
-            <div className="pane-actions">
-              <button
-                className="refresh-button"
-                type="button"
-                onClick={handleManualRefresh}
-                disabled={isRefreshing}
-                aria-label="Refresh files"
-                title="Refresh files"
-              >
-                <span aria-hidden="true">
-                  ↻
-                </span>
-                {isRefreshing ? "Refreshing" : "Refresh"}
-              </button>
-            </div>
+
+            {
+              filtersOpen && (
+                <div className="filter-panel">
+                  <label className="filter-field">
+                    <span>
+                      File type
+                    </span>
+                    <select
+                      value={fileTypeFilter}
+                      onChange={event =>
+                        setFileTypeFilter(
+                          event.target.value
+                        )
+                      }
+                    >
+                      <option value="all">
+                        All types
+                      </option>
+                      <option value="pdf">
+                        PDF
+                      </option>
+                      <option value="image">
+                        Images
+                      </option>
+                      <option value="office">
+                        Docs, PPT, Sheets
+                      </option>
+                      <option value="code">
+                        Code
+                      </option>
+                      <option value="text">
+                        Text / other
+                      </option>
+                    </select>
+                  </label>
+
+                  <label className="filter-field">
+                    <span>
+                      OCR quality
+                    </span>
+                    <select
+                      value={qualityFilter}
+                      onChange={event =>
+                        setQualityFilter(
+                          event.target.value
+                        )
+                      }
+                    >
+                      <option value="all">
+                        All quality
+                      </option>
+                      <option value="good">
+                        Good
+                      </option>
+                      <option value="review">
+                        Review
+                      </option>
+                      <option value="low-ocr">
+                        Low OCR
+                      </option>
+                      <option value="partial">
+                        Partial
+                      </option>
+                    </select>
+                  </label>
+
+                  <button
+                    className="filter-clear"
+                    type="button"
+                    disabled={
+                      fileTypeFilter === "all" &&
+                      qualityFilter === "all"
+                    }
+                    onClick={() => {
+                      setFileTypeFilter("all");
+                      setQualityFilter("all");
+                    }}
+                  >
+                    Clear filters
+                  </button>
+                </div>
+              )
+            }
           </section>
 
           {
@@ -1909,6 +2874,11 @@ function App() {
                                   className={`compact-row ${selectedDoc?.documentId === doc.documentId ? "active" : ""}`}
                                   onClick={() =>
                                     setSelectedDoc(doc)
+                                  }
+                                  onDoubleClick={() =>
+                                    window
+                                      .electronAPI
+                                      .openFile(doc.filePath)
                                   }
                                 >
                                   <span
@@ -1961,11 +2931,17 @@ function App() {
                                   onClick={() =>
                                     setSelectedDoc(doc)
                                   }
+                                  onDoubleClick={() =>
+                                    window
+                                      .electronAPI
+                                      .openFile(doc.filePath)
+                                  }
                                 >
                                   <div className="result-thumb">
                                     <FileThumb
                                       doc={doc}
                                       loadPreview={viewMode === "list"}
+                                      previewRefreshKey={previewRefreshKey}
                                     />
                                   </div>
 
@@ -1983,58 +2959,24 @@ function App() {
                                       {compactPath(doc.filePath)}
                                     </p>
 
-                                    <p className="folder-line">
-                                      {organization?.primaryFolderPath || "Other"}
-                                      {" "}
-                                      <b className={`confidence-pill ${getConfidenceClass(organization)}`}>
-                                        {Math.round((organization?.confidence || 0) * 100)}%
-                                      </b>
-                                    </p>
-
-                                    <p className="preview">
-                                      {doc.preview || doc.cleanText?.slice(0, 220) || "No preview available"}
-                                    </p>
-
-                                    <p className="reason-line">
-                                      {getOrganizationReason(doc)}
-                                    </p>
-
-                                    <div className="tag-row">
-                                      {
-                                        (doc.keywordTags || [])
-                                          .slice(0, 5)
-                                          .map(tag => (
-                                            <span key={tag}>
-                                              {tag}
-                                            </span>
-                                          ))
-                                      }
-                                    </div>
-
                                     <div className="meta-row">
                                       <span>
-                                        {getFileType(doc.filePath)}
+                                        {getTypeLabel(
+                                          organization,
+                                          doc
+                                        )}
                                       </span>
                                       <span>
-                                        {doc.category || "Unknown"}
+                                        {organization?.primaryFolderPath || "Other"}
+                                      </span>
+                                      <span>
+                                        <b className={`confidence-pill ${getConfidenceClass(organization)}`}>
+                                          {Math.round((organization?.confidence || 0) * 100)}%
+                                        </b>
                                       </span>
                                       <span>
                                         {doc.totalPages ? `${doc.indexedPages || doc.pages?.length || 0}/${doc.totalPages} pages` : "single item"}
                                       </span>
-                                      {
-                                        doc.score != null && (
-                                          <span>
-                                            score {doc.score}
-                                          </span>
-                                        )
-                                      }
-                                      {
-                                        doc.planBScore != null && (
-                                          <span>
-                                            Plan B {doc.planBScore}
-                                          </span>
-                                        )
-                                      }
                                     </div>
                                   </div>
                                 </article>
@@ -2047,343 +2989,148 @@ function App() {
           }
         </section>
 
-        <aside className="detail-panel">
+        <aside className="detail-panel clean-inspector">
           {
             inspectedDoc
               ? (
                 <>
-              <div className="detail-header">
-                <div>
-                  <h2>
-                    Why This Folder?
-                  </h2>
-                </div>
-                <button
-                  className="close-btn"
-                  onClick={() =>
-                    setSelectedDoc(null)
-                  }
-                >
-                  Close
-                </button>
-              </div>
-
-              <section className="inspector-card file-summary-card">
-                <div className={`file-summary-icon type-${getFileType(inspectedDoc.filePath)}`}>
-                  {getFileType(inspectedDoc.filePath).toUpperCase()}
-                </div>
-                <div>
-                  <h3>
-                    {inspectedDoc.fileName}
-                  </h3>
-                  <p>
-                    {getFileType(inspectedDoc.filePath).toUpperCase()} Document
-                    {" "}
-                    ·
-                    {" "}
-                    {inspectedDoc.totalPages ? `${inspectedDoc.totalPages} pages` : "single item"}
-                  </p>
-                </div>
-              </section>
-
-              <div className="detail-actions">
-                <button
-                  className="btn btn-primary"
-                  onClick={() =>
-                    window
-                      .electronAPI
-                      .openFile(inspectedDoc.filePath)
-                  }
-                >
-                  Open File
-                </button>
-                <button
-                  className="btn btn-secondary"
-                  onClick={() =>
-                    window
-                      .electronAPI
-                      .revealFile(inspectedDoc.filePath)
-                  }
-                >
-                  Reveal
-                </button>
-              </div>
-
-              <section className="detail-section why-section">
-                <div className="inspector-facts">
-                  <span>
-                    Folder
-                  </span>
-                  <strong>
-                    {selectedOrganization?.primaryFolderPath || "Other"}
-                  </strong>
-                  <span>
-                    Type
-                  </span>
-                  <strong>
-                    {selectedOrganization?.documentType || "unknown"}
-                  </strong>
-                  <span>
-                    Subject
-                  </span>
-                  <strong>
-                    {selectedOrganization?.subject || "general"}
-                  </strong>
-                  <span>
-                    Confidence
-                  </span>
-                  <strong>
-                    {getConfidencePercent(selectedOrganization)}%
-                  </strong>
-                </div>
-                <div className="confidence-row">
-                  <b className={`confidence-pill ${getConfidenceClass(selectedOrganization)}`}>
-                    {getConfidenceLabel(selectedOrganization)}
-                  </b>
-                  <span>
-                    {Math.round((selectedOrganization?.confidence || 0) * 100)}%
-                  </span>
-                </div>
-                <h3>
-                  Reasons
-                </h3>
-                <ul className="reason-list">
-                  {
-                    (selectedOrganization?.reason?.length
-                      ? selectedOrganization.reason
-                      : [
-                          "document content"
-                        ]
-                    ).map(reason => (
-                      <li key={reason}>
-                        {reason}
-                      </li>
-                    ))
-                  }
-                </ul>
-                {
-                  selectedOrganization?.secondaryFolderPaths?.length > 0 && (
-                    <div className="tag-row">
-                      {
-                        selectedOrganization.secondaryFolderPaths
-                          .slice(0, 6)
-                          .map(folderPath => (
-                            <span key={folderPath}>
-                              {folderPath}
-                            </span>
-                          ))
-                      }
-                    </div>
-                  )
-                }
-                {
-                  selectedOrganization?.needsReview && (
-                    <p className="organizer-review">
-                      Needs review because the OCR or category confidence is low.
-                    </p>
-                  )
-                }
-              </section>
-
-              <section className="detail-section">
-                <h3>
-                  OCR Quality
-                </h3>
-                <div className="inspector-facts">
-                  <span>
-                    Quality
-                  </span>
-                  <strong>
-                    {getQualityLabel(inspectedDoc)}
-                  </strong>
-                  <span>
-                    Pages Found
-                  </span>
-                  <strong>
-                    {inspectedDoc.totalPages || 1}
-                  </strong>
-                  <span>
-                    Pages Indexed
-                  </span>
-                  <strong>
-                    {inspectedDoc.indexedPages || inspectedDoc.pages?.length || 1}
-                  </strong>
-                  <span>
-                    Last Updated
-                  </span>
-                  <strong>
-                    {formatUpdatedAt(inspectedDoc.updatedAt || inspectedDoc.scannedAt)}
-                  </strong>
-                </div>
-              </section>
-
-              <section className="detail-section folder-keyword-editor inspector-keywords">
-                <div className="folder-keyword-heading">
-                  <strong>
-                    Folder Keywords
-                  </strong>
-                  <button
-                    className="close-btn"
-                    type="button"
-                    disabled={
-                      folderKeywordSaving ||
-                      !folderKeywordInput.trim() ||
-                      !selectedFolder ||
-                      selectedFolder.id === "all-files"
-                    }
-                    onClick={handleSaveFolderKeyword}
-                  >
-                    Add
-                  </button>
-                </div>
-
-                <form
-                  className="folder-keyword-form"
-                  onSubmit={handleSaveFolderKeyword}
-                >
-                  <input
-                    value={folderKeywordInput}
-                    onChange={event =>
-                      setFolderKeywordInput(
-                        event.target.value
-                      )
-                    }
-                    placeholder="keyword or phrase"
-                    disabled={folderKeywordSaving}
-                  />
-                  <select
-                    value={folderKeywordRole}
-                    onChange={event =>
-                      setFolderKeywordRole(
-                        event.target.value
-                      )
-                    }
-                    disabled={folderKeywordSaving}
-                  >
-                    {
-                      FOLDER_KEYWORD_ROLE_OPTIONS.map(option => (
-                        <option
-                          key={option.value}
-                          value={option.value}
-                        >
-                          {option.label}
-                        </option>
-                      ))
-                    }
-                  </select>
-                </form>
-
-                <div className="folder-keyword-groups">
-                  {
-                    FOLDER_KEYWORD_GROUPS.map(group => (
-                      <div
-                        className="folder-keyword-group"
-                        key={group.role}
+                  <div className="inspector-fixed">
+                    <div className="detail-header">
+                      <div>
+                        <h2>
+                          File Preview
+                        </h2>
+                      </div>
+                      <button
+                        className="close-btn"
+                        onClick={() =>
+                          setSelectedDoc(null)
+                        }
                       >
-                        <div className="folder-keyword-group-title">
-                          <span>
-                            {group.title}
-                          </span>
-                          <strong>
-                            {groupedFolderKeywords[group.role].length}
-                          </strong>
-                        </div>
+                        Close
+                      </button>
+                    </div>
 
+                    <section className="inspector-preview-card">
+                      <div className="inspector-preview">
+                        <FileThumb
+                          doc={inspectedDoc}
+                          loadPreview
+                          previewRefreshKey={previewRefreshKey}
+                          previewQuality="high"
+                        />
+                      </div>
+                    </section>
+                  </div>
+
+                  <div className="inspector-scroll">
+                    <section className="file-title-section">
+                      <h3>
+                        {inspectedDoc.fileName}
+                      </h3>
+                    </section>
+
+                    <div className="detail-actions">
+                      <button
+                        className="btn btn-primary"
+                        onClick={() =>
+                          window
+                            .electronAPI
+                            .openFile(inspectedDoc.filePath)
+                        }
+                      >
+                        Open
+                      </button>
+                      <button
+                        className="btn btn-secondary"
+                        onClick={() =>
+                          window
+                            .electronAPI
+                            .revealFile(inspectedDoc.filePath)
+                        }
+                      >
+                        Show in Finder
+                      </button>
+                    </div>
+
+                    <section className="detail-section compact-tags-section">
+                      <h3>
+                        Tags
+                      </h3>
+                      <div className="tag-row">
                         {
-                          groupedFolderKeywords[group.role].length === 0
-                            ? (
-                                <p className="folder-keyword-empty">
-                                  {group.empty}
-                                </p>
-                              )
-                            : (
-                                <div className="folder-keyword-list">
-                                  {
-                                    groupedFolderKeywords[group.role].map(item => (
-                                      <span
-                                        className={`folder-keyword-pill ${item.role}`}
-                                        key={`${item.role}-${item.keyword}`}
-                                      >
-                                        <b>
-                                          {item.keyword}
-                                        </b>
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            handleDeleteFolderKeyword(
-                                              item.keyword
-                                            )
-                                          }
-                                          disabled={folderKeywordSaving}
-                                          aria-label={`Remove ${item.keyword}`}
-                                        >
-                                          x
-                                        </button>
-                                      </span>
-                                    ))
+                          [
+                            ...(inspectedDoc.titleTags || []),
+                            ...(inspectedDoc.keywordTags || [])
+                          ]
+                            .filter(
+                              (tag, index, all) =>
+                                tag &&
+                                all.indexOf(tag) === index
+                            )
+                            .slice(0, 24)
+                            .map(tag => (
+                              <span
+                                className="tag-pill"
+                                key={tag}
+                              >
+                                <span>
+                                  {tag}
+                                </span>
+                                <button
+                                  type="button"
+                                  aria-label={`Delete ${tag}`}
+                                  disabled={documentTagSaving}
+                                  onClick={() =>
+                                    handleDeleteDocumentTag(
+                                      tag
+                                    )
                                   }
-                                </div>
-                              )
+                                >
+                                  x
+                                </button>
+                              </span>
+                            ))
                         }
                       </div>
-                    ))
-                  }
-                </div>
-              </section>
+                    </section>
 
-              <section className="detail-section">
-                <h3>
-                  Tags
-                </h3>
-                <div className="tag-row">
-                  {
-                    [
-                      ...(inspectedDoc.titleTags || []),
-                      ...(inspectedDoc.keywordTags || [])
-                    ]
-                      .slice(0, 18)
-                      .map(tag => (
-                        <span key={tag}>
-                          {tag}
-                        </span>
-                      ))
-                  }
-                </div>
-              </section>
-
-              {
-                getQualityLabel(inspectedDoc) === "Low OCR" && (
-                  <section className="warning-box">
-                    OCR quality may be low. Topic keywords may work better than exact handwritten sentences.
-                  </section>
-                )
-              }
-
-              <section className="detail-section">
-                <h3>
-                  Extracted Text
-                </h3>
-                <pre className="text-preview">
-                  {
-                    detailLoading
-                      ? "Loading extracted text..."
-                      : selectedText || "No extracted text stored yet."
-                  }
-                </pre>
-              </section>
+                    <form
+                      className="tag-add-form"
+                      onSubmit={handleAddDocumentTag}
+                    >
+                      <input
+                        value={documentTagInput}
+                        onChange={event =>
+                          setDocumentTagInput(
+                            event.target.value
+                          )
+                        }
+                        placeholder="add tag"
+                        disabled={documentTagSaving}
+                      />
+                      <button
+                        className="btn btn-primary"
+                        type="submit"
+                        disabled={
+                          documentTagSaving ||
+                          !documentTagInput.trim()
+                        }
+                      >
+                        Add
+                      </button>
+                    </form>
+                  </div>
                 </>
               )
               : (
                   <div className="detail-empty">
                     <p className="eyebrow">
-                      Inspector
+                      Preview
                     </p>
                     <h2>
                       Select a file
                     </h2>
-                    <p className="muted">
-                      The app will show why the file belongs in its smart folder, confidence, OCR quality, keywords, and original path.
-                    </p>
                   </div>
                 )
           }

@@ -51,11 +51,15 @@ contextBridge.exposeInMainWorld(
           imagePath
         ),
     getFilePreviewData:
-      (filePath) =>
+      (filePath, options) =>
         ipcRenderer.invoke(
           "get-file-preview-data",
-          filePath
+          filePath,
+          options
         ),
+    getFilePreviewUrl:
+      (filePath) =>
+        `smart-preview://file?path=${encodeURIComponent(filePath)}`,
 
     selectFiles: () =>
       ipcRenderer.invoke(
@@ -103,6 +107,23 @@ contextBridge.exposeInMainWorld(
           "get-document-detail",
           documentId
         ),
+    getVirtualFolders:
+      () =>
+        ipcRenderer.invoke(
+          "get-virtual-folders"
+        ),
+    saveVirtualFolder:
+      (payload) =>
+        ipcRenderer.invoke(
+          "save-virtual-folder",
+          payload
+        ),
+    deleteVirtualFolder:
+      (folderId) =>
+        ipcRenderer.invoke(
+          "delete-virtual-folder",
+          folderId
+        ),
     getFolderKeywords:
       (folderId) =>
         ipcRenderer.invoke(
@@ -121,6 +142,33 @@ contextBridge.exposeInMainWorld(
           "delete-folder-keyword",
           folderId,
           keyword
+        ),
+    saveDocumentFolderOverride:
+      (payload) =>
+        ipcRenderer.invoke(
+          "save-document-folder-override",
+          payload
+        ),
+    deleteDocumentFolderOverride:
+      (documentId, folderId) =>
+        ipcRenderer.invoke(
+          "delete-document-folder-override",
+          documentId,
+          folderId
+        ),
+    addDocumentKeywordTag:
+      (documentId, tag) =>
+        ipcRenderer.invoke(
+          "add-document-keyword-tag",
+          documentId,
+          tag
+        ),
+    deleteDocumentKeywordTag:
+      (documentId, tag) =>
+        ipcRenderer.invoke(
+          "delete-document-keyword-tag",
+          documentId,
+          tag
         ),
     searchDocuments:
       (query) =>

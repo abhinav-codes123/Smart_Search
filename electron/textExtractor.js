@@ -1341,7 +1341,10 @@ function getImageMimeType(extension) {
   return `image/${extension.replace(".", "")}`;
 }
 
-export async function createFilePreviewDataUrl(filePath) {
+export async function createFilePreview(
+  filePath,
+  options = {}
+) {
 
   const extension =
     path
@@ -1356,10 +1359,20 @@ export async function createFilePreviewDataUrl(filePath) {
     const buffer =
       fs.readFileSync(filePath);
 
-    return `data:${getImageMimeType(extension)};base64,${buffer.toString("base64")}`;
+    return {
+      buffer,
+      mimeType:
+        getImageMimeType(
+          extension
+        )
+    };
   }
 
   if (extension === ".pdf") {
+    const pdfScale =
+      options.quality === "high"
+        ? 1.15
+        : 0.32;
     const pdf =
       await loadPdfDocument(
         filePath
@@ -1369,13 +1382,38 @@ export async function createFilePreviewDataUrl(filePath) {
     const buffer =
       await renderPdfPageToPngBuffer(
         page,
-        0.32
+        pdfScale
       );
 
-    return `data:image/png;base64,${Buffer.from(buffer).toString("base64")}`;
+    return {
+      buffer:
+        Buffer.from(
+          buffer
+        ),
+      mimeType:
+        "image/png"
+    };
   }
 
   return null;
+}
+
+export async function createFilePreviewDataUrl(
+  filePath,
+  options = {}
+) {
+
+  const preview =
+    await createFilePreview(
+      filePath,
+      options
+    );
+
+  if (!preview) {
+    return null;
+  }
+
+  return `data:${preview.mimeType};base64,${preview.buffer.toString("base64")}`;
 }
 
 export async function extractTextFromFile(filePath) {

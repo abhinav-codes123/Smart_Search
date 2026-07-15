@@ -3,10 +3,12 @@ import {
   BrowserWindow,
   dialog,
   ipcMain,
+  protocol,
   shell
 } from "electron";
 import path from "path";
 import { fileURLToPath } from "url";
+import crypto from "crypto";
 import {
   insertDocument,
   applyPlanBEnrichment,
@@ -14,9 +16,16 @@ import {
   getDocumentByFileHash,
   getDocumentDetail,
   getDocumentSummaries,
+  getVirtualFolders,
+  saveVirtualFolder,
+  deleteVirtualFolder,
   getFolderKeywordOverrides,
   saveFolderKeywordOverride,
   deleteFolderKeywordOverride,
+  saveDocumentFolderOverride,
+  deleteDocumentFolderOverride,
+  addDocumentKeywordTag,
+  deleteDocumentKeywordTag,
   searchDocumentSummaries,
   claimNextOcrJob,
   completeOcrJob,
@@ -34,6 +43,7 @@ import {
   stopPlanBWorker
 } from "./planBService.js";
 import {
+  createFilePreview,
   createFilePreviewDataUrl,
   extractFileForIndex,
   extractPdfPageText,
@@ -55,6 +65,310 @@ const __dirname = path.dirname(__filename);
 let ocrQueueRunning = false;
 const unavailableThumbnailPaths =
   new Set();
+const PDF_PREVIEW_CACHE_VERSION = 1;
+const PDF_PREVIEW_CONCURRENCY = 1;
+let activePdfPreviewJobs = 0;
+const pdfPreviewQueue = [];
+const pendingPdfPreviewJobs =
+  new Map();
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme:
+      "smart-preview",
+    privileges: {
+      standard:
+        true,
+      secure:
+        true,
+      supportFetchAPI:
+        true
+    }
+  }
+]);
+
+function isPdfPath(filePath) {
+  return path
+    .extname(filePath)
+    .toLowerCase() === ".pdf";
+}
+
+function getPreviewCacheDir() {
+  return app.isPackaged
+    ? path.join(
+        app.getPath(
+          "userData"
+        ),
+        "data",
+        "previews"
+      )
+    : path.join(
+        process.cwd(),
+        "electron",
+        "data",
+        "previews"
+      );
+}
+
+function getPdfPreviewCachePath(filePath) {
+  const stat =
+    fs.statSync(filePath);
+  const cacheKey =
+    crypto
+      .createHash("sha1")
+      .update(
+        JSON.stringify({
+          version:
+            PDF_PREVIEW_CACHE_VERSION,
+          path:
+            path.normalize(
+              filePath
+            ),
+          size:
+            stat.size,
+          mtimeMs:
+            Math.floor(
+              stat.mtimeMs
+            )
+        })
+      )
+      .digest("hex");
+
+  return {
+    cacheKey,
+    cachePath:
+      path.join(
+        getPreviewCacheDir(),
+        `${cacheKey}.png`
+      )
+  };
+}
+
+function runNextPdfPreviewJobs() {
+  while (
+    activePdfPreviewJobs < PDF_PREVIEW_CONCURRENCY &&
+    pdfPreviewQueue.length > 0
+  ) {
+    const job =
+      pdfPreviewQueue.shift();
+
+    activePdfPreviewJobs += 1;
+
+    (async () => {
+      try {
+        const preview =
+          await createFilePreview(
+            job.filePath
+          );
+
+        if (!preview) {
+          job.resolve(null);
+          return;
+        }
+
+        fs.mkdirSync(
+          path.dirname(
+            job.cachePath
+          ),
+          {
+            recursive:
+              true
+          }
+        );
+        fs.writeFileSync(
+          job.cachePath,
+          preview.buffer
+        );
+
+        job.resolve(preview);
+      } catch (error) {
+        job.reject(error);
+      } finally {
+        pendingPdfPreviewJobs.delete(
+          job.cacheKey
+        );
+        activePdfPreviewJobs -= 1;
+        runNextPdfPreviewJobs();
+      }
+    })();
+  }
+}
+
+function enqueuePdfPreviewRender(filePath, cacheKey, cachePath) {
+  const pending =
+    pendingPdfPreviewJobs.get(
+      cacheKey
+    );
+
+  if (pending) {
+    return pending;
+  }
+
+  const promise =
+    new Promise((resolve, reject) => {
+      pdfPreviewQueue.push({
+        filePath,
+        cacheKey,
+        cachePath,
+        resolve,
+        reject
+      });
+
+      runNextPdfPreviewJobs();
+    });
+
+  pendingPdfPreviewJobs.set(
+    cacheKey,
+    promise
+  );
+
+  return promise;
+}
+
+function getCachedPdfPreviewIfReady(filePath) {
+  const {
+    cacheKey,
+    cachePath
+  } =
+    getPdfPreviewCachePath(
+      filePath
+    );
+
+  if (
+    fs.existsSync(
+      cachePath
+    )
+  ) {
+    return {
+      ready:
+        true,
+      preview: {
+        buffer:
+          fs.readFileSync(
+            cachePath
+          ),
+        mimeType:
+          "image/png"
+      }
+    };
+  }
+
+  return {
+    ready:
+      false,
+    promise:
+      enqueuePdfPreviewRender(
+        filePath,
+        cacheKey,
+        cachePath
+      )
+  };
+}
+
+function schedulePdfPreviewCache(filePath, details = {}) {
+  if (
+    !filePath ||
+    !isPdfPath(filePath)
+  ) {
+    return {
+      scheduled:
+        false,
+      reason:
+        "not-pdf"
+    };
+  }
+
+  let state;
+
+  try {
+    state =
+      getCachedPdfPreviewIfReady(
+        filePath
+      );
+  } catch (error) {
+    log.warn(
+      "preview.thumbnail.schedule-failed",
+      {
+        ...details,
+        filePath,
+        error:
+          error.message
+      }
+    );
+
+    return {
+      scheduled:
+        false,
+      reason:
+        error.message
+    };
+  }
+
+  if (state.ready) {
+    log.info(
+      "preview.thumbnail.cache-hit",
+      {
+        ...details,
+        filePath
+      }
+    );
+
+    return {
+      scheduled:
+        false,
+      reason:
+        "cached"
+    };
+  }
+
+  log.info(
+    "preview.thumbnail.queued",
+    {
+      ...details,
+      filePath,
+      queueLength:
+        pdfPreviewQueue.length,
+      active:
+        activePdfPreviewJobs
+    }
+  );
+
+  state
+    .promise
+    .then(preview => {
+      log.info(
+        preview
+          ? "preview.thumbnail.completed"
+          : "preview.thumbnail.unavailable",
+        {
+          ...details,
+          filePath,
+          bytes:
+            preview?.buffer?.length || 0
+        }
+      );
+    })
+    .catch(error => {
+      recordUnavailableThumbnail(
+        filePath,
+        error
+      );
+      log.warn(
+        "preview.thumbnail.failed",
+        {
+          ...details,
+          filePath,
+          error:
+            error.message
+        }
+      );
+    });
+
+  return {
+    scheduled:
+      true
+  };
+}
 
 function shouldEnrichWithPlanB(document) {
 
@@ -629,6 +943,104 @@ function createWindow() {
   }
 }
 
+function registerPreviewProtocol() {
+  protocol.handle(
+    "smart-preview",
+    async request => {
+      const url =
+        new URL(
+          request.url
+        );
+      const filePath =
+        url
+          .searchParams
+          .get("path");
+
+      if (!filePath) {
+        return new Response(
+          "Missing preview path",
+          {
+            status:
+              400
+          }
+        );
+      }
+
+      try {
+        let preview;
+
+        if (isPdfPath(filePath)) {
+          const state =
+            getCachedPdfPreviewIfReady(
+              filePath
+            );
+
+          if (!state.ready) {
+            schedulePdfPreviewCache(
+              filePath,
+              {
+                source:
+                  "list-view"
+              }
+            );
+
+            return new Response(
+              "Preview queued",
+              {
+                status:
+                  202
+              }
+            );
+          }
+
+          preview =
+            state.preview;
+        } else {
+          preview =
+            await createFilePreview(
+              filePath
+            );
+        }
+
+        if (!preview) {
+          return new Response(
+            "Preview unavailable",
+            {
+              status:
+                404
+            }
+          );
+        }
+
+        return new Response(
+          preview.buffer,
+          {
+            headers: {
+              "content-type":
+                preview.mimeType,
+              "cache-control":
+                "no-store"
+            }
+          }
+        );
+      } catch (error) {
+        recordUnavailableThumbnail(
+          filePath,
+          error
+        );
+
+        return new Response(
+          "Preview failed",
+          {
+            status:
+              500
+          }
+        );
+      }
+    }
+  );
+}
+
 ipcMain.handle("select-folder", async () => {
   const result = await dialog.showOpenDialog({
     properties: ["openDirectory"]
@@ -707,10 +1119,11 @@ ipcMain.handle(
 
 ipcMain.handle(
   "get-file-preview-data",
-  async (_, filePath) => {
+  async (_, filePath, options = {}) => {
     try {
       return await createFilePreviewDataUrl(
-        filePath
+        filePath,
+        options
       );
     } catch (error) {
       recordUnavailableThumbnail(
@@ -910,13 +1323,24 @@ ipcMain.handle(
 
     try {
 
-      const savedDocument =
-        insertDocument(
-          document
-        );
-      const {
-        document:
-          enrichedDocument,
+	      const savedDocument =
+	        insertDocument(
+	          document
+	        );
+
+	      schedulePdfPreviewCache(
+	        savedDocument.filePath,
+	        {
+	          source:
+	            "upload",
+	          documentId:
+	            savedDocument.documentId
+	        }
+	      );
+
+	      const {
+	        document:
+	          enrichedDocument,
         planB
       } =
         await enrichSavedDocumentWithPlanB(
@@ -945,11 +1369,11 @@ ipcMain.handle(
         }
       );
 
-      if (
-        (document.jobs || []).length > 0
-      ) {
-        startOcrQueue();
-      } else {
+	      if (
+	        (document.jobs || []).length > 0
+	      ) {
+	        startOcrQueue();
+	      } else {
         log.info(
           "ocr.queue.skipped-no-new-jobs",
           {
@@ -958,10 +1382,10 @@ ipcMain.handle(
             filePath:
               savedDocument.filePath
           }
-        );
-      }
+	        );
+	      }
 
-      return {
+	      return {
         success: true,
         document:
           enrichedDocument,
@@ -1014,6 +1438,75 @@ ipcMain.handle(
     getDocumentDetail(
       documentId
     )
+);
+
+ipcMain.handle(
+  "get-virtual-folders",
+  async () =>
+    getVirtualFolders()
+);
+
+ipcMain.handle(
+  "save-virtual-folder",
+  async (_, payload) => {
+    try {
+      return {
+        success: true,
+        ...saveVirtualFolder(
+          payload
+        )
+      };
+    } catch (error) {
+      log.error(
+        "organizer.virtual-folder.save-failed",
+        {
+          folderId:
+            payload?.folderId,
+          name:
+            payload?.name,
+          parentId:
+            payload?.parentId,
+          error:
+            error.message
+        }
+      );
+
+      return {
+        success: false,
+        error:
+          error.message
+      };
+    }
+  }
+);
+
+ipcMain.handle(
+  "delete-virtual-folder",
+  async (_, folderId) => {
+    try {
+      return {
+        success: true,
+        ...deleteVirtualFolder(
+          folderId
+        )
+      };
+    } catch (error) {
+      log.error(
+        "organizer.virtual-folder.delete-failed",
+        {
+          folderId,
+          error:
+            error.message
+        }
+      );
+
+      return {
+        success: false,
+        error:
+          error.message
+      };
+    }
+  }
 );
 
 ipcMain.handle(
@@ -1073,6 +1566,133 @@ ipcMain.handle(
         {
           folderId,
           keyword,
+          error:
+            error.message
+        }
+      );
+
+      return {
+        success: false,
+        error:
+          error.message
+      };
+    }
+  }
+);
+
+ipcMain.handle(
+  "save-document-folder-override",
+  async (_, payload) => {
+    try {
+      return {
+        success: true,
+        ...saveDocumentFolderOverride(
+          payload
+        )
+      };
+    } catch (error) {
+      log.error(
+        "organizer.document-folder.save-failed",
+        {
+          documentId:
+            payload?.documentId,
+          folderId:
+            payload?.folderId,
+          action:
+            payload?.action,
+          error:
+            error.message
+        }
+      );
+
+      return {
+        success: false,
+        error:
+          error.message
+      };
+    }
+  }
+);
+
+ipcMain.handle(
+  "delete-document-folder-override",
+  async (_, documentId, folderId) => {
+    try {
+      return {
+        success: true,
+        ...deleteDocumentFolderOverride(
+          documentId,
+          folderId
+        )
+      };
+    } catch (error) {
+      log.error(
+        "organizer.document-folder.delete-failed",
+        {
+          documentId,
+          folderId,
+          error:
+            error.message
+        }
+      );
+
+      return {
+        success: false,
+        error:
+          error.message
+      };
+    }
+  }
+);
+
+ipcMain.handle(
+  "add-document-keyword-tag",
+  async (_, documentId, tag) => {
+    try {
+      return {
+        success: true,
+        ...addDocumentKeywordTag(
+          documentId,
+          tag
+        )
+      };
+    } catch (error) {
+      log.error(
+        "document.keyword-tag.add-failed",
+        {
+          documentId,
+          tag,
+          error:
+            error.message
+        }
+      );
+
+      return {
+        success: false,
+        error:
+          error.message
+      };
+    }
+  }
+);
+
+ipcMain.handle(
+  "delete-document-keyword-tag",
+  async (_, documentId, tag) => {
+    try {
+      return {
+        success: true,
+        ...deleteDocumentKeywordTag(
+          documentId,
+          tag
+        )
+      };
+    } catch (error) {
+      log.error(
+        "document.keyword-tag.delete-failed",
+        {
+          documentId,
+          tag,
           error:
             error.message
         }
@@ -1213,6 +1833,7 @@ app.whenReady().then(() => {
   log.info(
     "app.ready"
   );
+  registerPreviewProtocol();
   createWindow();
   startPlanBWorker()
     .catch(error => {
